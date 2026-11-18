@@ -117,7 +117,6 @@
       const segs = []; p.path.slice(p.h).forEach(st => { const h = M.hops[st.hop], pts = h.pts.map(q => [q[0], q[1]]); if (st.from !== h.a) pts.reverse(); segs.push(pts); });
       const d = segs.map(s => smooth(s)).join(' ');
       el('path', { d, fill: 'none', stroke: '#ffd400', 'stroke-width': 13, opacity: 0.55, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, layers.route);
-      const c = P.city[p.dest]; el('circle', { cx: c.x, cy: c.y, r: 20, fill: 'none', stroke: COLORS[p.id % COLORS.length], 'stroke-width': 5 }, layers.route);
       (p.via || []).forEach(v => { const vc = P.city[v]; el('circle', { cx: vc.x, cy: vc.y, r: 15, fill: 'none', stroke: '#111', 'stroke-width': 4, 'stroke-dasharray': '5 3' }, layers.route); });
     }
     drawWalk();
@@ -131,13 +130,19 @@
       const col = COLORS[pl.id % COLORS.length];
       if (pl.dest) { // everyone's destination stays visible: a ring and the player's letter
         const dc = P.city[pl.dest], dn = (seen['d' + pl.dest] = (seen['d' + pl.dest] || 0) + 1);
-        el('circle', { cx: dc.x, cy: dc.y, r: 18 + dn * 6, fill: 'none', stroke: col, 'stroke-width': 4 }, layers.route);
-        const bg = el('g', { transform: 'translate(' + (dc.x + 16 + (dn - 1) * 14) + ',' + (dc.y + 20) + ')' }, layers.route);
+        el('circle', { cx: dc.x, cy: dc.y, r: 16 + dn * 9, fill: 'none', stroke: '#fff', 'stroke-width': 11, opacity: 0.85 }, layers.route);
+        el('circle', { cx: dc.x, cy: dc.y, r: 16 + dn * 9, fill: 'none', stroke: col, 'stroke-width': 7 }, layers.route);
+        if (pl.origin && pl.origin !== pl.dest) { // where this trip started: a dashed thick ring
+          const oc = P.city[pl.origin], on = (seen['o' + pl.origin] = (seen['o' + pl.origin] || 0) + 1);
+          el('circle', { cx: oc.x, cy: oc.y, r: 14 + on * 8, fill: 'none', stroke: '#fff', 'stroke-width': 10, opacity: 0.8 }, layers.route);
+          el('circle', { cx: oc.x, cy: oc.y, r: 14 + on * 8, fill: 'none', stroke: col, 'stroke-width': 6, 'stroke-dasharray': '9 5' }, layers.route);
+        }
+        const bg = el('g', { transform: 'translate(' + (dc.x + 24 + (dn - 1) * 16) + ',' + (dc.y + 28) + ')' }, layers.route);
         el('circle', { r: 8, fill: col, stroke: '#fff', 'stroke-width': 1.5 }, bg); const bt = el('text', { 'text-anchor': 'middle', y: 4, 'font-size': 11, 'font-weight': 800, fill: '#fff' }, bg); bt.textContent = (pl.name[0] || '?').toUpperCase();
       }
       if (prefs.homes !== false) { // home city: a triangle in the player's colour
-        const hm = P.city[pl.home], hn = (seen['h' + pl.home] = (seen['h' + pl.home] || 0) + 1), ox = (hn - 1) * 20;
-        el('polygon', { points: [hm.x + ox, hm.y - 34, hm.x + ox - 11, hm.y - 14, hm.x + ox + 11, hm.y - 14].join(' '), fill: col, stroke: '#fff', 'stroke-width': 2 }, layers.route);
+        const hm = P.city[pl.home], hn = (seen['h' + pl.home] = (seen['h' + pl.home] || 0) + 1), ox = (hn - 1) * 19, top = hm.y + hm.s / 2 + 1;
+        el('polygon', { points: [hm.x + ox, top, hm.x + ox - 9, top + 15, hm.x + ox + 9, top + 15].join(' '), fill: col, stroke: '#fff', 'stroke-width': 2 }, layers.route);
       }
     });
   }
@@ -153,13 +158,23 @@
     const p = B.cur(g), col = COLORS[p.id % COLORS.length], w = g.walk;
     w.segs.forEach(seg => { const pts = []; for (let d = seg.start; d <= seg.start + seg.take; d++) pts.push(posAt(seg, d).join(',')); el('polyline', { points: pts.join(' '), fill: 'none', stroke: col, 'stroke-width': 10, opacity: 0.85, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, layers.steps); });
     const opts = B.stepOptions(g), sug = B.suggestedStep(g);
-    opts.forEach((o, i) => { const pos = B.optPos(o); const c = el('circle', { cx: pos[0], cy: pos[1], r: 13, fill: i === sug ? '#ffd400' : '#fff', stroke: col, 'stroke-width': 4, 'data-pip': i, style: 'cursor:pointer' }, layers.steps); c.classList.add('pip'); });
+    const sugHop = sug >= 0 ? opts[sug].hop : -1;
+    opts.forEach((o, i) => { // every reachable pip is clickable; the furthest on each track pulses
+      const far = !opts.some(q => q.hop === o.hop && q.from === o.from && q.dd > o.dd), pos = B.optPos(o);
+      const c = el('circle', { cx: pos[0], cy: pos[1], r: far ? 13 : 9, fill: o.hop === sugHop ? '#ffd400' : '#fff', stroke: col, 'stroke-width': far ? 4 : 3, 'data-pip': i, style: 'cursor:pointer' }, layers.steps); if (far) c.classList.add('pip');
+    });
   }
   /* ---------- side panels ---------- */
   const money = B.money;
   function dieHtml(v, red) { return '<span class="die' + (red ? ' red' : '') + '">' + FACE[v] + '</span>'; }
+  function rollLine(d, label) {
+    const dice = d.manual ? '' : dieHtml(d.col, true) + dieHtml(d.w1) + dieHtml(d.w2);
+    return '<div>' + label + ' ' + dice + ' <span class="sum">' + d.parity + ' column, white ' + d.sum + ' &rarr; <b>' + esc(d.kind === 'city' ? d.city : d.region) + '</b></span></div>';
+  }
   function diceHtml() {
-    const d = g && g.dice; if (!d) return '<div class="muted">Dice appear here.</div>';
+    const d = g && g.dice, dr = g && g.destRolls;
+    if (dr && (dr.region || dr.city) && (!d || d.kind !== 'move')) return (dr.region ? rollLine(dr.region, '<b>1.</b> Region') : '') + (dr.city ? rollLine(dr.city, '<b>2.</b> City') : '');
+    if (!d) return '<div class="muted">Dice appear here.</div>';
     if (d.kind === 'move') return (d.manual ? '<b>' + d.sum + '</b>' : d.rolls.map(v => dieHtml(v)).join('')) + ' <span class="sum">= ' + d.sum + ' dots</span>';
     const dice = d.manual ? '' : dieHtml(d.col, true) + dieHtml(d.w1) + dieHtml(d.w2);
     return dice + ' <span class="sum">' + d.parity + ' column, white ' + d.sum + ' &rarr; <b>' + esc(d.kind === 'city' ? d.city : d.region) + '</b></span>';
@@ -198,16 +213,16 @@
     h += '<div class="who"><span class="dot" style="background:' + COLORS[p.id % COLORS.length] + '"></span><b>' + esc(p.name) + '</b>' + (p.bot ? ' (bot)' : '') + ' &mdash; round ' + g.round + '</div>';
     if (p.bot) return h + '<div class="muted">' + (paused ? 'Paused.' : 'Bot is playing&hellip;') + '</div><div class="row"><button class="b" data-act="pause">' + (paused ? 'Resume bots' : 'Pause bots') + '</button> <button class="b" data-act="skip">Skip to the next human</button></div>';
     if (g.phase === 'dest') {
-      if (g.stage === 'region') h += '<button class="b pri big" data-act="rollregion">&#127922; Roll destination (region)</button>' + (prefs.manual ? manualForm('region') : '');
+      if (g.stage === 'region') h += '<button class="b pri big" data-act="rollregion">&#127922; Roll 1 of 2: destination region</button>' + (prefs.manual ? manualForm('region') : '');
       if (g.stage === 'pick') h += '<div>You rolled your own region. Choose any region:</div><div class="chips">' + M.regions.filter(r => r.name !== B.regionOf(p.loc)).map(r => '<button class="b chip" style="border-color:' + r.line + '" data-act="pick" data-r="' + esc(r.name) + '">' + esc(r.name) + '</button>').join('') + '</div>';
-      if (g.stage === 'city') h += '<button class="b pri big" data-act="rollcity">&#127922; Roll the city in ' + esc(g.region) + '</button>' + (prefs.manual ? manualForm('city') : '');
+      if (g.stage === 'city') h += '<button class="b pri big" data-act="rollcity">&#127922; Roll 2 of 2: city in ' + esc(g.region) + (P.regionCities[g.region] && P.regionCities[g.region].length === 1 ? ' (only one city)' : '') + '</button>' + (prefs.manual ? manualForm('city') : '');
     } else if (g.phase === 'route') {
       const left = p.path.slice(p.h).reduce((s, st) => s + st.dots, 0) - p.dd;
       h += '<div>Destination <b>' + esc(p.dest) + '</b> &middot; ' + left + ' dots left &middot; pays ' + money(B.payoff(p.origin, p.dest)) + '</div>' + routeBox(p) +
         '<button class="b pri big" data-act="rollmove">&#127922; Roll to move (' + (p.sc ? '3 dice, Super Chief' : '2 dice') + ')</button>' + (prefs.manual ? '<div class="manual"><span class="muted">Dots by hand:</span> <input id="mdots" type="number" min="1" max="18" value="7"> <button class="b" data-act="mmove">Use</button></div>' : '');
     } else if (g.phase === 'walk' && g.walk) {
       const w = g.walk, fe = B.walkFees(g);
-      h += '<div class="walk"><span class="rem">' + w.rem + '</span> of ' + w.n + ' dots left. Click the next pip (the pulsing circles) to move one dot at a time; the yellow one follows your planned route.' + (w.arrived ? ' <b>You are in ' + esc(p.dest) + '!</b>' : '') + '</div>' +
+      h += '<div class="walk"><span class="rem">' + w.rem + '</span> of ' + w.n + ' dots left. Tap any pip along a track to jump straight to it (the big pulsing one is the furthest you can go); yellow is your planned route.' + (w.arrived ? ' <b>You are in ' + esc(p.dest) + '!</b>' : '') + '</div>' +
         '<div class="muted">Fees so far: ' + (fe.notes.length ? esc(fe.notes.join(', ')) : 'none') + '</div>' +
         '<div class="row"><button class="b" data-act="undo"' + (w.segs.length ? '' : ' disabled') + '>Undo a pip</button> <button class="b" data-act="autowalk"' + (w.done ? ' disabled' : '') + '>Fill the rest along the route</button></div>' +
         '<button class="b pri big" data-act="finish"' + (w.done ? '' : ' disabled') + '>Finish move</button>';
@@ -217,8 +232,20 @@
     }
     return h;
   }
+  /* rails grouped like the printed map: the cross-region ones first, then the left side (British, France, Iberia, Italy), then the right (Scandinavia, Germanic, Alpine, Balkans) */
+  const GROUP_ORDER = ['British Isles', 'France-Benelux', 'Iberia', 'Italy', 'Scandinavia-Baltic', 'Germanic Core', 'Alpine-Danube-Poland', 'Balkans & Anatolia'];
+  const groupOf = r => (r.premium ? 'Cross-region' : r.home);
   function railsHtml() {
-    const p = g ? B.cur(g) : null, rows = M.rails.slice().sort((a, b) => b.price - a.price);
+    const hide = prefs.hideSold && g, groups = ['Cross-region'].concat(GROUP_ORDER), shut = prefs.shut || {};
+    return groups.map(name => {
+      const all = M.rails.filter(r => groupOf(r) === name).sort((a, b) => b.price - a.price), rows = all.filter(r => !(hide && g.owner[r.code] !== undefined));
+      const sold = g ? all.filter(r => g.owner[r.code] !== undefined).length : 0, rg = M.regions.find(x => x.name === name);
+      if (!all.length || (hide && !rows.length)) return '';
+      return '<details class="rgroup" data-grp="' + esc(name) + '"' + (shut[name] ? '' : ' open') + '><summary' + (rg ? ' style="border-left:6px solid ' + rg.line + '"' : ' style="border-left:6px solid #222"') + '>' + esc(name) + ' <span class="muted">' + (all.length - sold) + ' of ' + all.length + ' for sale</span></summary>' + railTable(rows) + '</details>';
+    }).join('');
+  }
+  function railTable(rows) {
+    const p = g ? B.cur(g) : null;
     return '<table class="rt"><tr><th></th><th>Rail</th><th>Price</th><th>Owner</th></tr>' + rows.map(r => {
       const o = g ? g.owner[r.code] : undefined, can = g && !p.bot && B.canBuy(g, p.id, r.code);
       const sw = '<svg width="38" height="10"><line x1="2" y1="5" x2="36" y2="5" stroke="' + r.color + '" stroke-width="' + Math.min(r.w, 5) + '"' + (r.dash ? ' stroke-dasharray="' + r.dash + '"' : '') + '/></svg>';
@@ -263,7 +290,8 @@
   }
   function render() {
     if (!g) return;
-    $('round').textContent = 'Round ' + g.round + ' · ' + M.name;
+    $('round').textContent = 'Round ' + g.round;
+    $('cash').innerHTML = g.players.map(p => '<div class="cc' + (p.id === g.turn && g.phase !== 'over' ? ' on' : '') + '" style="border-color:' + COLORS[p.id % COLORS.length] + '"><b>' + esc(p.name) + '</b><span class="' + (p.cash < 0 ? 'neg' : '') + '">' + money(p.cash) + '</span></div>').join('');
     $('players').innerHTML = playersHtml(); $('actions').innerHTML = actionsHtml(); $('dicebox').innerHTML = diceHtml(); $('rails').innerHTML = railsHtml(); $('log').innerHTML = logHtml(); renderTip();
     updateMap(); autosave();
   }
@@ -370,7 +398,12 @@
       '<li><b>Dice by hand:</b> tick the box in the toolbar to type in your physical dice instead.</li><li><b>Export</b> at the end saves every trip as JSON for the tracker.</li></ul><div class="row"><button class="b pri" id="ok">Close</button></div>';
     $('ok').onclick = () => d.close(); d.showModal();
   }
-  $('bnew').onclick = openSetup; $('brules').onclick = openRules;
+  $('gear').onclick = () => $('set').showModal();
+  $('setok').onclick = () => $('set').close();
+  $('bnew').onclick = () => { $('set').close(); openSetup(); }; $('brules').onclick = () => { $('set').close(); openRules(); };
+  $('hsold').checked = !!prefs.hideSold;
+  $('hsold').onchange = e => { prefs.hideSold = e.target.checked; savePrefs(); if (g) $('rails').innerHTML = railsHtml(); };
+  document.addEventListener('toggle', e => { const d = e.target; if (d.dataset && d.dataset.grp) { prefs.shut = prefs.shut || {}; prefs.shut[d.dataset.grp] = !d.open; savePrefs(); } }, true);
   $('bsave').onclick = () => { if (g) download('baron-save.json', JSON.stringify(g)); };
   $('hm').checked = prefs.homes !== false; $('stp').checked = prefs.step !== false; $('tg').checked = prefs.tags !== false; $('spd').value = String(prefs.speed); $('fol').checked = prefs.follow; $('man').checked = prefs.manual;
 

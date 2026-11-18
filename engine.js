@@ -88,7 +88,7 @@
       }
     }
     function startTurn(g) {
-      const p = cur(g); g.turnPaid = {}; g.dice = null; g.moveNote = null; g.lastMove = null; g.walk = null;
+      const p = cur(g); g.turnPaid = {}; g.dice = null; g.destRolls = null; g.moveNote = null; g.lastMove = null; g.walk = null;
       if (p.goingHome && p.loc === p.home) { win(g, p); return; }
       if (p.dest) { g.phase = 'route'; }
       else if (p.goingHome) { setDest(g, p.home); }
@@ -99,7 +99,7 @@
     /* destination: step 1 = region roll */
     function rollRegion(g, manual) {
       const p = cur(g), r = tableRoll(g, manual); g.dice = { kind: 'region', ...r };
-      const region = M.tracker.regions[r.parity][r.sum]; g.dice.region = region;
+      const region = M.tracker.regions[r.parity][r.sum]; g.dice.region = region; g.destRolls = { region: g.dice };
       if (regionOf(p.loc) === region) { g.needPick = true; g.stage = 'pick'; log(g, p.name + ' rolled ' + region + ', where they already are: choose any region.', p.id); }
       else { g.region = region; g.stage = 'city'; log(g, p.name + ' rolled region ' + region + '.', p.id); }
       return g.dice;
@@ -111,7 +111,7 @@
       if (!tab) { setDest(g, g.region); return null; }
       for (let k = 0; k < 20; k++) {
         const r = tableRoll(g, k === 0 ? manual : null); const city = tab[r.parity][r.sum];
-        g.dice = { kind: 'city', ...r, region: g.region, city };
+        g.dice = { kind: 'city', ...r, region: g.region, city }; g.destRolls = Object.assign(g.destRolls || {}, { city: g.dice });
         if (city !== p.loc) { setDest(g, city); return g.dice; }
       }
     }
@@ -229,26 +229,31 @@
       g.phase = 'walk'; log(g, p.name + ' rolled ' + sum + ': click the pips to move.', p.id);
       return g.walk;
     }
-    function stepOptions(g) {
+    function stepOptions(g) { // every pip you can click: all the way along a track as far as the roll reaches
       const w = g.walk; if (!w || w.done || w.rem <= 0) return [];
-      if (w.at === 'hop') return [{ hop: w.hop, from: w.from, to: w.to, dd: w.dd + 1 }];
-      return P.adj[w.city].map(e => ({ hop: e.hop, from: w.city, to: e.to, dd: 1 }));
+      if (w.at === 'hop') { const hop = M.hops[w.hop], out = []; for (let d = w.dd + 1; d <= Math.min(hop.nd, w.dd + w.rem); d++) out.push({ hop: w.hop, from: w.from, to: w.to, dd: d }); return out; }
+      const out = []; P.adj[w.city].forEach(e => { for (let d = 1; d <= Math.min(e.dots, w.rem); d++) out.push({ hop: e.hop, from: w.city, to: e.to, dd: d }); }); return out;
     }
     function optPos(o) {
       const hop = M.hops[o.hop]; if (o.dd >= hop.nd) { const c = P.city[o.to]; return [c.x, c.y]; }
       const pt = hop.dotpts[(o.from === hop.a ? o.dd : hop.nd - o.dd) - 1]; return [pt[0], pt[1]];
     }
-    function suggestedStep(g) { // index of the option on the planned route
-      const w = g.walk, p = cur(g), opts = stepOptions(g); if (!opts.length) return -1; if (w.at === 'hop') return 0;
-      const r = route(g, p.id, w.city, p.dest, g.routeMode || 'balanced'); if (!r.length) return -1;
-      return opts.findIndex(o => o.hop === r[0].hop);
+    function suggestedStep(g) { // the furthest option along the planned route
+      const w = g.walk, p = cur(g), opts = stepOptions(g); if (!opts.length) return -1;
+      let hopId;
+      if (w.at === 'hop') hopId = w.hop; else { const r = route(g, p.id, w.city, p.dest, g.routeMode || 'balanced'); if (!r.length) return -1; hopId = r[0].hop; }
+      let best = -1; opts.forEach((o, i) => { if (o.hop === hopId && (best < 0 || o.dd > opts[best].dd)) best = i; }); return best;
     }
-    function stepWalk(g, i) {
-      const w = g.walk, o = stepOptions(g)[i]; if (!o) return false;
-      const hop = M.hops[o.hop], last = w.segs[w.segs.length - 1]; w.rem--;
+    function stepOne(g, o) {
+      const w = g.walk, hop = M.hops[o.hop], last = w.segs[w.segs.length - 1]; w.rem--;
       if (last && last.hop === o.hop && last.from === o.from && last.start + last.take === o.dd - 1) last.take++; else w.segs.push({ hop: o.hop, from: o.from, to: o.to, start: o.dd - 1, take: 1 });
       if (o.dd >= hop.nd) { w.at = 'city'; w.city = o.to; w.hop = null; w.from = null; w.to = null; w.dd = 0; } else { w.at = 'hop'; w.city = null; w.hop = o.hop; w.from = o.from; w.to = o.to; w.dd = o.dd; }
       if (w.at === 'city' && w.city === cur(g).dest) { w.arrived = true; w.done = true; } else if (w.rem === 0) w.done = true;
+    }
+    function stepWalk(g, i) { // click one pip: jumps every pip up to it on the same track
+      const w = g.walk, o = stepOptions(g)[i]; if (!o) return false;
+      const from = w.at === 'hop' ? w.dd : 0;
+      for (let d = from + 1; d <= o.dd; d++) stepOne(g, { hop: o.hop, from: o.from, to: o.to, dd: d });
       return true;
     }
     function undoWalk(g) {
