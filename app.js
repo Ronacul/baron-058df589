@@ -158,11 +158,28 @@
     const p = B.cur(g), col = COLORS[p.id % COLORS.length], w = g.walk;
     w.segs.forEach(seg => { const pts = []; for (let d = seg.start; d <= seg.start + seg.take; d++) pts.push(posAt(seg, d).join(',')); el('polyline', { points: pts.join(' '), fill: 'none', stroke: col, 'stroke-width': 10, opacity: 0.85, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, layers.steps); });
     const opts = B.stepOptions(g), sug = B.suggestedStep(g);
-    const sugHop = sug >= 0 ? opts[sug].hop : -1;
+    const sugHop = sug >= 0 ? opts[sug].hop : -1, placed = [], cur0 = g.walk.at === 'hop' ? g.walk.hop : -1;
     opts.forEach((o, i) => { // every reachable pip is clickable; the furthest on each track pulses
-      const far = !opts.some(q => q.hop === o.hop && q.from === o.from && q.dd > o.dd), pos = B.optPos(o);
-      const c = el('circle', { cx: pos[0], cy: pos[1], r: far ? 13 : 9, fill: o.hop === sugHop ? '#ffd400' : '#fff', stroke: col, 'stroke-width': far ? 4 : 3, 'data-pip': i, style: 'cursor:pointer' }, layers.steps); if (far) c.classList.add('pip');
+      const pos = B.optPos(o), tcol = P.rail[M.hops[o.hop].rails[0]] ? P.rail[M.hops[o.hop].rails[0]].color : col;
+      if (o.choose) { // overlapping tracks: a labelled button for each, fanned out around the city
+        const cc = P.city[g.walk.city], base = Math.atan2(pos[1] - cc.y, pos[0] - cc.x), far2 = B.optPos(M.hops[o.hop].nd > 2 ? { hop: o.hop, from: o.from, to: o.to, dd: 3 } : o), ang0 = Math.atan2(far2[1] - cc.y, far2[0] - cc.x);
+        const label = o.to, w = 12 + 7.6 * label.length;
+        let ang = isNaN(ang0) ? base : ang0, tries = 0, ax, ay;
+        do { const rad = 58 + Math.floor(tries / 8) * 30; ax = cc.x + Math.cos(ang) * rad; ay = cc.y + Math.sin(ang) * rad; ang += 0.45; tries++; } while (placed.some(q => Math.abs(q[0] - ax) < (q[2] + w) / 2 + 6 && Math.abs(q[1] - ay) < 32) && tries < 40);
+        placed.push([ax, ay, w]);
+        const gg = el('g', { 'data-pip': i, style: 'cursor:pointer' }, layers.steps);
+        el('line', { x1: cc.x, y1: cc.y, x2: ax, y2: ay, stroke: tcol, 'stroke-width': 3, 'stroke-dasharray': '4 3' }, gg);
+        el('rect', { x: ax - w / 2, y: ay - 13, width: w, height: 26, rx: 7, fill: o.hop === sugHop ? '#ffd400' : '#fff', stroke: tcol, 'stroke-width': 4, 'data-pip': i }, gg);
+        const tx = el('text', { x: ax, y: ay + 5, 'text-anchor': 'middle', 'font-size': 14, 'font-weight': 800, fill: '#111', 'data-pip': i }, gg); tx.textContent = label; return;
+      }
+      const far = !opts.some(q => q.hop === o.hop && q.from === o.from && q.dd > o.dd), alt = o.jstart !== undefined || (g.walk.at === 'city' && opts.filter(q => q.dd === 1).length > 1);
+      const c = el('circle', { cx: pos[0], cy: pos[1], r: far ? 13 : 9, fill: o.hop === sugHop && o.jstart === undefined ? '#ffd400' : '#fff', stroke: alt ? tcol : col, 'stroke-width': far ? 4 : 3, 'data-pip': i, style: 'cursor:pointer' }, layers.steps); if (far) c.classList.add('pip');
+      if (o.jstart !== undefined) c.setAttribute('stroke-dasharray', '4 2');
     });
+    if (cur0 >= 0) { // crossings you can change tracks at, marked on the track you are on
+      const h = M.hops[cur0], abs = g.walk.from === h.a ? g.walk.dd : h.nd - g.walk.dd;
+      if (((B.P.J[cur0] || {})[abs] || []).length) { const pos = B.tokenPos(g, p); el('circle', { cx: pos[0], cy: pos[1], r: 19, fill: 'none', stroke: '#111', 'stroke-width': 3, 'stroke-dasharray': '3 3' }, layers.steps); }
+    }
   }
   /* ---------- side panels ---------- */
   const money = B.money;
@@ -184,7 +201,7 @@
       const rails = M.rails.filter(r => g.owner[r.code] === p.id);
       const left = p.dest ? p.path.slice(p.h).reduce((s, st) => s + st.dots, 0) - p.dd : 0;
       return '<div class="pl' + (p.id === g.turn && g.phase !== 'over' ? ' on' : '') + '" style="border-left-color:' + COLORS[p.id % COLORS.length] + '">' +
-        '<div class="pl1"><b>' + esc(p.name) + '</b>' + (p.bot ? ' <span class="tag">bot</span>' : '') + (p.sc ? ' <span class="tag sc" title="Super Chief: 3 dice">SC</span>' : '') + (p.goingHome ? ' <span class="tag home">going home</span>' : '') +
+        '<div class="pl1"><b>' + esc(p.name) + '</b>' + (p.bot ? ' <span class="tag">bot</span>' : '') + (p.sc ? ' <span class="tag sc" title="Super Chief: after an arrival, a new destination and one extra die the same turn">SC</span>' : '') + (p.goingHome ? ' <span class="tag home">going home</span>' : '') +
         '<span class="cash' + (p.cash < 0 ? ' neg' : '') + '">' + money(p.cash) + '</span></div>' +
         '<div class="pl2">Home ' + esc(p.home) + ' &middot; at ' + esc(p.loc) + (p.dest ? ' &rarr; <b>' + esc(p.dest) + '</b> (' + left + ' dots)' : '') + '</div>' +
         '<div class="pl3">' + (rails.length ? rails.map(r => '<span class="rc" style="border-color:' + r.color + '">' + r.code + '</span>').join('') : '<span class="muted">no rails</span>') + ' <span class="muted">trips ' + p.trips + '</span></div></div>';
@@ -202,6 +219,11 @@
     return '<div class="manual"><span class="muted">Dice by hand:</span> <select id="mpar"><option value="odd">odd</option><option value="even">even</option></select> colour die &middot; white sum <select id="msum">' +
       [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(n => '<option>' + n + '</option>').join('') + '</select> <button class="b" data-act="mdest" data-k="' + kind + '">Use</button></div>';
   }
+  function trackLabel(o) { const h = M.hops[o.hop], rs = h.rails.map(r => r + (g.owner[r] === undefined ? '' : ' (' + g.players[g.owner[r]].name + ')')).join(' + ') || 'free track'; return esc(o.to) + ' &middot; ' + rs; }
+  function chooseHtml() { // tracks leaving a city on top of each other: pick one here as well as on the map
+    const opts = B.stepOptions(g); if (!opts.some(o => o.choose)) return '';
+    return '<div class="muted"><b>Which track?</b></div><div class="chips">' + opts.map((o, i) => o.choose ? '<button class="b chip" style="border-color:' + P.rail[M.hops[o.hop].rails[0]].color + '" data-act="pipbtn" data-i="' + i + '">&rarr; ' + trackLabel(o) + '</button>' : '').join('') + '</div>';
+  }
   function actionsHtml() {
     const p = B.cur(g); let h = '';
     if (g.phase === 'over') {
@@ -213,22 +235,23 @@
     h += '<div class="who"><span class="dot" style="background:' + COLORS[p.id % COLORS.length] + '"></span><b>' + esc(p.name) + '</b>' + (p.bot ? ' (bot)' : '') + ' &mdash; round ' + g.round + '</div>';
     if (p.bot) return h + '<div class="muted">' + (paused ? 'Paused.' : 'Bot is playing&hellip;') + '</div><div class="row"><button class="b" data-act="pause">' + (paused ? 'Resume bots' : 'Pause bots') + '</button> <button class="b" data-act="skip">Skip to the next human</button></div>';
     if (g.phase === 'dest') {
+      if (g.stage === 'declare') h += '<div class="win">You have ' + money(p.cash) + '. Instead of a new destination you must <b>declare for home</b> (' + esc(p.home) + '). Anyone who ends a move in the same city as you catches you: you pay them ' + money(M.cfg.catchFee) + ' and must run a new destination.</div><button class="b pri big" data-act="declare">&#127968; Declare: head for ' + esc(p.home) + '</button>';
       if (g.stage === 'region') h += '<button class="b pri big" data-act="rollregion">&#127922; Roll 1 of 2: destination region</button>' + (prefs.manual ? manualForm('region') : '');
       if (g.stage === 'pick') h += '<div>You rolled your own region. Choose any region:</div><div class="chips">' + M.regions.filter(r => r.name !== B.regionOf(p.loc)).map(r => '<button class="b chip" style="border-color:' + r.line + '" data-act="pick" data-r="' + esc(r.name) + '">' + esc(r.name) + '</button>').join('') + '</div>';
       if (g.stage === 'city') h += '<button class="b pri big" data-act="rollcity">&#127922; Roll 2 of 2: city in ' + esc(g.region) + (P.regionCities[g.region] && P.regionCities[g.region].length === 1 ? ' (only one city)' : '') + '</button>' + (prefs.manual ? manualForm('city') : '');
     } else if (g.phase === 'route') {
       const left = p.path.slice(p.h).reduce((s, st) => s + st.dots, 0) - p.dd;
       h += '<div>Destination <b>' + esc(p.dest) + '</b> &middot; ' + left + ' dots left &middot; pays ' + money(B.payoff(p.origin, p.dest)) + '</div>' + routeBox(p) +
-        '<button class="b pri big" data-act="rollmove">&#127922; Roll to move (' + (p.sc ? '3 dice, Super Chief' : '2 dice') + ')</button>' + (prefs.manual ? '<div class="manual"><span class="muted">Dots by hand:</span> <input id="mdots" type="number" min="1" max="18" value="7"> <button class="b" data-act="mmove">Use</button></div>' : '');
+        '<button class="b pri big" data-act="rollmove">&#127922; Roll to move (' + (g.bonus ? '1 die, Super Chief' : '2 dice') + ')</button>' + (prefs.manual ? '<div class="manual"><span class="muted">Dots by hand:</span> <input id="mdots" type="number" min="1" max="18" value="7"> <button class="b" data-act="mmove">Use</button></div>' : '');
     } else if (g.phase === 'walk' && g.walk) {
       const w = g.walk, fe = B.walkFees(g);
       h += '<div class="walk"><span class="rem">' + w.rem + '</span> of ' + w.n + ' dots left. Tap any pip along a track to jump straight to it (the big pulsing one is the furthest you can go); yellow is your planned route.' + (w.arrived ? ' <b>You are in ' + esc(p.dest) + '!</b>' : '') + '</div>' +
-        '<div class="muted">Fees so far: ' + (fe.notes.length ? esc(fe.notes.join(', ')) : 'none') + '</div>' +
+        '<div class="muted">Fees so far: ' + (fe.notes.length ? esc(fe.notes.join(', ')) : 'none') + '</div>' + chooseHtml() +
         '<div class="row"><button class="b" data-act="undo"' + (w.segs.length ? '' : ' disabled') + '>Undo a pip</button> <button class="b" data-act="autowalk"' + (w.done ? ' disabled' : '') + '>Fill the rest along the route</button></div>' +
         '<button class="b pri big" data-act="finish"' + (w.done ? '' : ' disabled') + '>Finish move</button>';
     } else if (g.phase === 'buy') {
       h += '<div class="arr">' + esc(g.log[g.log.length - 1] ? '' : '') + 'Arrived. Buy rails in the list below' + (g.cfg.superChief > 0 && !p.sc ? ' or the Super Chief' : '') + ', then end your turn.</div>' +
-        '<div class="row">' + (B.canBuyChief(g, p.id) ? '<button class="b" data-act="chief">Buy Super Chief ' + money(g.cfg.superChief) + '</button> ' : '') + '<button class="b pri big" data-act="end">End turn</button></div>';
+        '<div class="row">' + (B.canBuyChief(g, p.id) ? '<button class="b" data-act="chief">Buy Super Chief ' + money(g.cfg.superChief) + '</button> ' : '') + (B.canBonus(g) ? '<button class="b pri big" data-act="bonus">&#127922; Super Chief: roll a new destination + one die</button>' : '') + '<button class="b' + (B.canBonus(g) ? '' : ' pri') + ' big" data-act="end">End turn</button></div>';
     }
     return h;
   }
@@ -290,6 +313,7 @@
   }
   function render() {
     if (!g) return;
+    const pb = $('pipbox'); if (g.phase === 'walk' && g.walk) { pb.hidden = false; pb.innerHTML = '<b>' + g.walk.rem + '</b><span>pip' + (g.walk.rem === 1 ? '' : 's') + ' left of ' + g.walk.n + (g.bonus ? ' (Super Chief die)' : '') + '</span>'; } else pb.hidden = true;
     $('round').textContent = 'Round ' + g.round;
     $('cash').innerHTML = g.players.map(p => '<div class="cc' + (p.id === g.turn && g.phase !== 'over' ? ' on' : '') + '" style="border-color:' + COLORS[p.id % COLORS.length] + '"><b>' + esc(p.name) + '</b><span class="' + (p.cash < 0 ? 'neg' : '') + '">' + money(p.cash) + '</span></div>').join('');
     $('players').innerHTML = playersHtml(); $('actions').innerHTML = actionsHtml(); $('dicebox').innerHTML = diceHtml(); $('rails').innerHTML = railsHtml(); $('log').innerHTML = logHtml(); renderTip();
@@ -322,6 +346,9 @@
     if (!g) return; const p = B.cur(g);
     if (a === 'rollregion') { B.rollRegion(g); }
     else if (a === 'pick') { B.pickRegion(g, el.dataset.r); }
+    else if (a === 'declare') { B.declareHome(g); routeMode = 'balanced'; }
+    else if (a === 'bonus') { B.startBonus(g); }
+    else if (a === 'pipbtn') { B.stepWalk(g, +el.dataset.i); }
     else if (a === 'rollcity') { B.rollCity(g); routeMode = 'balanced'; }
     else if (a === 'rollmove') { if (prefs.step) B.rollMoveStep(g); else B.rollMove(g); }
     else if (a === 'undo') { B.undoWalk(g); }
@@ -388,13 +415,15 @@
     const c = M.cfg, d = $('dlg');
     d.innerHTML = '<h2>How this playtest works</h2><ul class="rules"><li><b>Goal:</b> collect ' + money(c.win) + ' (editable) at an arrival, then get back to your home city first.</li>' +
       '<li><b>Destination:</b> coloured die odd/even + two white dice pick a region, then a second roll picks the city. Roll your own region and you may choose any region.</li>' +
-      '<li><b>Moving:</b> roll 2 dice of dots a turn (3 with the Super Chief, ' + money(c.superChief) + '). Dots left over at arrival are lost. Pick the route: fastest, balanced, or fewest fees.</li>' +
+      '<li><b>Moving:</b> roll 2 dice of dots a turn. Dots left over at arrival are lost. Tap pips to pick your own path; where two tracks cross you may change tracks (you pay the fee of any track you ride).</li>' +
+      '<li><b>Super Chief (' + money(c.superChief) + '):</b> after an arrival you collect, buy, roll a new destination and move one more die the same turn. Fees already paid that turn are not paid again.</li>' +
+      '<li><b>Declare:</b> at ' + money(c.win) + ' you must declare for home instead of rolling a destination. If another player who is not running home ends a move in the same city as you, you are caught: you pay them ' + money(c.catchFee) + ' and must run a new destination (paid from where you declared).</li>' +
       '<li><b>Payoff:</b> $1K per dot of the shortest track route from where your trip started.</li>' +
       '<li><b>Fees, once a turn:</b> ' + money(c.feePublic) + ' to the bank if you use any public rail; ' + money(c.feePrivate) + ' to each owner whose rails you use (' + money(c.feeAllSold) + ' once every rail is sold). Your own rails are free.</li>' +
       '<li><b>Buying:</b> after each arrival you may buy rails (and the Super Chief). Owned rails glow in the owner&rsquo;s colour.</li>' +
       '<li><b>Short of cash:</b> rails are sold back to the bank at half price, cheapest first.</li>' +
       '<li><b>Red squares</b> are zapper cities: only one rail serves them.</li>' +
-      '<li><b>Assumed, not from a rule book:</b> leftover dots lost on arrival, Super Chief buyable at any arrival, forced-sale rule, bot behaviour. Tell me what to change.</li>' +
+      '<li><b>Assumed, not from a rule book:</b> leftover dots lost on arrival, Super Chief buyable at any arrival and its extra die only after an arrival, what counts as a catch (same city at the end of a move), forced-sale rule, bot behaviour. Tell me what to change.</li>' +
       '<li><b>Dice by hand:</b> tick the box in the toolbar to type in your physical dice instead.</li><li><b>Export</b> at the end saves every trip as JSON for the tracker.</li></ul><div class="row"><button class="b pri" id="ok">Close</button></div>';
     $('ok').onclick = () => d.close(); d.showModal();
   }

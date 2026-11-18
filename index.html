@@ -13,7 +13,7 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:14px/1
 header{display:flex;gap:8px;align-items:center;padding:6px 10px;background:#22392d;color:#f5ebd3;min-width:0}
 #round{font-size:12px;opacity:.8;white-space:nowrap}
 #cash{display:flex;gap:6px;overflow-x:auto;min-width:0;flex:1 1 auto}
-.cc{flex:1 1 0;min-width:0;justify-content:space-between;display:flex;align-items:baseline;gap:4px;background:#fff1;border:2px solid #888;border-radius:8px;padding:2px 6px;white-space:nowrap}
+.cc{flex:1 1 0;min-width:0;max-width:200px;justify-content:space-between;display:flex;align-items:baseline;gap:4px;background:#fff1;border:2px solid #888;border-radius:8px;padding:2px 6px;white-space:nowrap}
 @media (max-width:520px){#round{display:none}}
 .cc.on{background:#fff;color:#111}.cc b{font-size:12px;overflow:hidden;text-overflow:ellipsis}.cc span{font-size:15px;font-weight:800}.cc span.neg{color:#d33}
 .gear{font-size:24px;line-height:1;width:40px;height:36px;border:1px solid #fff6;background:#fff2;color:#f5ebd3;border-radius:8px;cursor:pointer}
@@ -22,6 +22,9 @@ header{display:flex;gap:8px;align-items:center;padding:6px 10px;background:#2239
 .rgroup>summary::before{content:"B8 ";}.rgroup[open]>summary::before{content:"BE ";}
 .rgroup .rt{margin:0 4px 4px;width:calc(100% - 8px)}
 #railsec>summary{cursor:pointer;font-weight:800;font-size:15px}
+#pipbox{position:absolute;right:8px;top:8px;background:#fffbe8;border:3px solid #c0392b;border-radius:12px;padding:4px 12px;text-align:center;box-shadow:0 2px 8px #0005;pointer-events:none;line-height:1}
+#pipbox b{display:block;font-size:40px;color:#c0392b}
+#pipbox span{font-size:12px;color:#555}
 .hs{font-size:12px;display:inline-flex;gap:4px;align-items:center;margin:4px 0}
 header h1{font-size:16px;margin:0}
 header .sp{flex:0}
@@ -103,6 +106,7 @@ dialog h2{margin-top:0}.rules li{margin-bottom:5px}
   <section id="mapwrap">
    <svg id="map" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet"></svg>
    <div id="tip" hidden></div>
+   <div id="pipbox" hidden></div>
    <div class="mapctl"><button id="zin" title="Zoom in">+</button><button id="zout" title="Zoom out">&minus;</button><button id="zall" title="Whole map">&#8962;</button><button id="znow" title="Centre on the player">&#9678;</button></div>
   </section>
   <aside id="side">

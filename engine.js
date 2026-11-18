@@ -4,7 +4,11 @@
    Rules as implemented (change them in MAP.cfg or in the functions below; assumptions are marked ASSUMED):
    - Destination: coloured die odd/even + two white dice (sum 2-12) pick a region, then a second roll picks the city in it.
      Rolling the region you are in lets you PICK any region, then the city roll is made in it.
-   - Movement: 2 dice of dots a turn (3 with Super Chief). Leftover dots on arrival are lost (ASSUMED).
+   - Movement: 2 dice of dots a turn. Leftover dots on arrival are lost (ASSUMED). SUPER CHIEF: after an arrival you may collect, buy,
+     roll a NEW destination and move with ONE extra die in the same turn (fees already paid this turn are not paid again).
+   - At the win cash a player must DECLARE for home instead of rolling a destination. A declared runner who ends a move in the same city as a
+     player who is not running home is CAUGHT (ASSUMED rule): pays the catcher cfg.catchFee, must roll and run a new destination, paid from the
+     city where they declared.
    - Payoff on arrival = shortest track distance in dots from where the trip started, times MAP.unit.
    - Fees, once per turn: 1K to the bank if you used any public rail; 5K (10K once every rail is sold) to each owner whose rail you used; own rails free.
    - Rails can be bought at every arrival. Super Chief can be bought at every arrival (ASSUMED).
@@ -29,12 +33,31 @@
     const city = {}; M.cities.forEach(c => { city[c.n] = c; });
     const regionCities = {}; M.cities.forEach(c => { (regionCities[c.r] = regionCities[c.r] || []).push(c.n); });
     const railsAt = {}; M.rails.forEach(r => r.cities.forEach(c => { (railsAt[c] = railsAt[c] || []).push(r.code); }));
-    M._p = { names, idx, n, m, adj, rail, city, regionCities, railsAt };
+    /* crossings: where two tracks cross between cities, a player may change track. J[hopId][pip from hop.a] = [{hop, dd}] */
+    const J = {}; M.hops.forEach(h => { J[h.id] = {}; });
+    const segX = (a, b, c, d) => { const r = [b[0] - a[0], b[1] - a[1]], s = [d[0] - c[0], d[1] - c[1]], den = r[0] * s[1] - r[1] * s[0]; if (!den) return null; const t = ((c[0] - a[0]) * s[1] - (c[1] - a[1]) * s[0]) / den, u = ((c[0] - a[0]) * r[1] - (c[1] - a[1]) * r[0]) / den; return (t >= 0 && t <= 1 && u >= 0 && u <= 1) ? [a[0] + t * r[0], a[1] + t * r[1]] : null; };
+    const plen = h => { let L = 0; for (let i = 1; i < h.pts.length; i++) L += Math.hypot(h.pts[i][0] - h.pts[i - 1][0], h.pts[i][1] - h.pts[i - 1][1]); return L; };
+    const bbox = h => { let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; h.pts.forEach(p => { x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]); }); return [x0, y0, x1, y1]; };
+    M.hops.forEach(h => { h._bb = bbox(h); h._sp = plen(h) / Math.max(1, h.nd); });
+    const nearDot = (h, X) => { let bi = -1, bd = 1e9; h.dotpts.forEach((p, i) => { const d = Math.hypot(p[0] - X[0], p[1] - X[1]); if (d < bd) { bd = d; bi = i; } }); return { dd: bi + 1, d: bd }; };
+    for (let i = 0; i < M.hops.length; i++) for (let j = i + 1; j < M.hops.length; j++) {
+      const A = M.hops[i], Bh = M.hops[j];
+      if (A._bb[2] < Bh._bb[0] || Bh._bb[2] < A._bb[0] || A._bb[3] < Bh._bb[1] || Bh._bb[3] < A._bb[1]) continue;
+      for (let k = 1; k < A.pts.length; k++) for (let l = 1; l < Bh.pts.length; l++) {
+        const X = segX(A.pts[k - 1], A.pts[k], Bh.pts[l - 1], Bh.pts[l]); if (!X) continue;
+        const na = nearDot(A, X), nb = nearDot(Bh, X);
+        if (na.dd < 1 || na.dd > A.nd - 1 || nb.dd < 1 || nb.dd > Bh.nd - 1 || na.d > A._sp * 0.8 || nb.d > Bh._sp * 0.8) continue;
+        const la = (J[A.id][na.dd] = J[A.id][na.dd] || []), lb = (J[Bh.id][nb.dd] = J[Bh.id][nb.dd] || []);
+        if (!la.some(q => q.hop === Bh.id && q.dd === nb.dd)) la.push({ hop: Bh.id, dd: nb.dd });
+        if (!lb.some(q => q.hop === A.id && q.dd === na.dd)) lb.push({ hop: A.id, dd: na.dd });
+      }
+    }
+    M._p = { names, idx, n, m, adj, rail, city, regionCities, railsAt, J };
     return M._p;
   }
 
   function Baron(M) {
-    const P = prep(M), C = M.cfg;
+    const P = prep(M), C = M.cfg; if (C.catchFee === undefined) C.catchFee = 50000;
 
     /* ---------- random numbers (seeded, state kept inside the game so saves replay) ---------- */
     function rnd(g) {
@@ -88,11 +111,36 @@
       }
     }
     function startTurn(g) {
-      const p = cur(g); g.turnPaid = {}; g.dice = null; g.destRolls = null; g.moveNote = null; g.lastMove = null; g.walk = null;
+      const p = cur(g); g.turnPaid = {}; g.bonus = false; g.dice = null; g.destRolls = null; g.moveNote = null; g.lastMove = null; g.walk = null;
       if (p.goingHome && p.loc === p.home) { win(g, p); return; }
-      if (p.dest) { g.phase = 'route'; }
-      else if (p.goingHome) { setDest(g, p.home); }
-      else { g.phase = 'dest'; g.stage = 'region'; g.region = null; g.needPick = false; }
+      if (p.dest) { g.phase = 'route'; } else beginDest(g);
+    }
+    function beginDest(g) { // roll a destination, or (at the win cash) declare for home instead
+      const p = cur(g); g.phase = 'dest'; g.region = null; g.needPick = false; g.destRolls = null;
+      g.stage = (p.cash >= g.cfg.win && !p.mustRun && !p.goingHome) ? 'declare' : 'region';
+    }
+    function declareHome(g) {
+      const p = cur(g); if (g.phase !== 'dest' || g.stage !== 'declare') return false;
+      p.goingHome = true; p.declaredFrom = p.loc; log(g, p.name + ' has ' + money(p.cash) + ' and declares: heading home to ' + p.home + '! Anyone ending a move in the same city as ' + p.name + ' catches them (' + money(C.catchFee) + ').', p.id);
+      if (p.loc === p.home) { win(g, p); return true; }
+      setDest(g, p.home); return true;
+    }
+    /* a declared runner who shares a city with a player who is not running home is caught: pays the catcher, then must run a new destination */
+    function checkCatch(g) {
+      g.players.forEach(r => {
+        if (!r.goingHome || g.phase === 'over' || (r.path.length && r.dd > 0)) return;
+        const c = g.players.find(q => q.id !== r.id && !q.goingHome && !(q.path.length && q.dd > 0) && q.loc === r.loc); if (!c) return;
+        r.cash -= C.catchFee; c.cash += C.catchFee; r.paid += C.catchFee; c.received += C.catchFee;
+        r.goingHome = false; r.mustRun = true; r.payFrom = r.declaredFrom || r.loc; r.dest = null; r.origin = null; r.path = []; r.h = 0; r.dd = 0; r.via = [];
+        log(g, c.name + ' catches ' + r.name + ' in ' + r.loc + '! ' + r.name + ' pays ' + money(C.catchFee) + ', must roll a new destination and is paid from ' + r.payFrom + '.', c.id);
+        settle(g, r);
+      });
+    }
+    /* Super Chief: after an arrival, collect, buy, then roll a new destination and move one die in the same turn */
+    function canBonus(g) { const p = cur(g); return g.phase === 'buy' && p.sc && !g.bonus; }
+    function startBonus(g) {
+      if (!canBonus(g)) return false;
+      g.bonus = true; log(g, cur(g).name + ' uses the Super Chief: a new destination and one more die this turn.', g.turn); beginDest(g); return true;
     }
     function win(g, p) { g.winner = p.id; g.phase = 'over'; log(g, p.name + ' is home with ' + money(p.cash) + ' and wins on round ' + g.round + '!', p.id); }
 
@@ -116,9 +164,9 @@
       }
     }
     function setDest(g, city) {
-      const p = cur(g); p.dest = city; p.origin = p.loc; p.h = 0; p.dd = 0; g.stage = 'region';
+      const p = cur(g); p.dest = city; p.origin = (!p.goingHome && p.payFrom) ? p.payFrom : p.loc; p.payFrom = null; p.h = 0; p.dd = 0; g.stage = 'region';
       p.via = []; g.routeMode = 'balanced'; p.path = pathFor(g, p, 'balanced'); g.phase = 'route';
-      log(g, p.name + (p.goingHome ? ' heads home to ' : ' draws destination ') + city + ' (' + units(p.loc, city) + ' dots, pays ' + money(payoff(p.loc, city)) + ').', p.id);
+      log(g, p.name + (p.goingHome ? ' heads home to ' : ' draws destination ') + city + ' (' + units(p.loc, city) + ' dots, pays ' + (p.goingHome ? 'the win' : money(payoff(p.origin, city))) + ').', p.id);
     }
 
     /* ---------- routing ---------- */
@@ -166,7 +214,7 @@
     function routeInfo(g, pi, mode) { // dots left, rails used and an estimate of what the next turn would cost
       const p = g.players[pi], path = mode ? pathFor(g, p, mode).filter((st, i) => !(p.dd > 0 && i === 0)) : p.path.slice(p.h);
       const left = path.reduce((s, st) => s + st.dots, 0) - (mode ? 0 : p.dd);
-      const sc = p.sc ? 10 : 7, paid = {}; let est = 0, dots = sc; const rails = [];
+      const sc = 7, paid = {}; let est = 0, dots = sc; const rails = [];
       for (const st of path) {
         const hop = M.hops[st.hop]; hop.rails.forEach(r => { if (!rails.includes(r)) rails.push(r); });
         if (dots <= 0) break;
@@ -190,13 +238,13 @@
 
     /* ---------- movement ---------- */
     function rollMove(g, manualSum) {
-      const p = cur(g), n = p.sc ? C.superChiefDice : C.dice, rolls = [];
+      const p = cur(g), n = g.bonus ? 1 : C.dice, rolls = [];
       let sum = 0; if (manualSum) { sum = manualSum; } else { for (let i = 0; i < n; i++) { const v = d6(g); rolls.push(v); sum += v; } }
       g.dice = { kind: 'move', rolls, sum, manual: !!manualSum };
       return move(g, sum);
     }
     function move(g, n) {
-      const p = cur(g), notes = []; let rem = n, used = 0; g.turnPaid = {}; p.turns++;
+      const p = cur(g), notes = []; let rem = n, used = 0; if (!g.bonus) g.turnPaid = {}; p.turns++;
       while (rem > 0 && p.h < p.path.length) {
         const st = p.path[p.h], hop = M.hops[st.hop], take = Math.min(rem, st.dots - p.dd);
         const f = feeFor(g, p.id, hop.rails, g.turnPaid);
@@ -215,34 +263,54 @@
       const arrived = p.h >= p.path.length;
       g.lastMove = { moved: used, rolled: n, notes, arrived };
       log(g, p.name + ' rolled ' + n + ' and moved ' + used + ' dot' + (used === 1 ? '' : 's') + (notes.length ? ': ' + notes.join('; ') : '; no fees') + '.', p.id);
-      settle(g, p);
+      settle(g, p); if (!(arrived && p.goingHome && p.dest === p.home)) checkCatch(g);
       if (arrived) arrive(g, p); else endTurn(g);
       return g.lastMove;
     }
     /* ---------- step-by-step movement: the player clicks each pip to follow, counting down the roll ---------- */
     function rollMoveStep(g, manualSum) {
-      const p = cur(g), n = p.sc ? C.superChiefDice : C.dice, rolls = []; let sum = 0;
+      const p = cur(g), n = g.bonus ? 1 : C.dice, rolls = []; let sum = 0;
       if (manualSum) sum = manualSum; else for (let i = 0; i < n; i++) { const v = d6(g); rolls.push(v); sum += v; }
       g.dice = { kind: 'move', rolls, sum, manual: !!manualSum };
       const first = p.dd > 0 ? p.path[p.h] : null;
       g.walk = { n: sum, rem: sum, segs: [], at: first ? 'hop' : 'city', city: first ? null : p.loc, hop: first ? first.hop : null, from: first ? first.from : null, to: first ? first.to : null, dd: first ? p.dd : 0, done: false, arrived: false };
-      g.phase = 'walk'; log(g, p.name + ' rolled ' + sum + ': click the pips to move.', p.id);
+      g.walk.init = { at: g.walk.at, city: g.walk.city, hop: g.walk.hop, from: g.walk.from, to: g.walk.to, dd: g.walk.dd };
+      g.phase = 'walk'; log(g, p.name + ' rolled ' + sum + (g.bonus ? ' on the Super Chief die' : '') + ': click the pips to move.', p.id);
       return g.walk;
     }
-    function stepOptions(g) { // every pip you can click: all the way along a track as far as the roll reaches
-      const w = g.walk; if (!w || w.done || w.rem <= 0) return [];
-      if (w.at === 'hop') { const hop = M.hops[w.hop], out = []; for (let d = w.dd + 1; d <= Math.min(hop.nd, w.dd + w.rem); d++) out.push({ hop: w.hop, from: w.from, to: w.to, dd: d }); return out; }
-      const out = []; P.adj[w.city].forEach(e => { for (let d = 1; d <= Math.min(e.dots, w.rem); d++) out.push({ hop: e.hop, from: w.city, to: e.to, dd: d }); }); return out;
-    }
+    /* every pip you can click: along the track you are on as far as the roll reaches, onto any track that crosses it, and (at a city) down every track.
+       Where tracks leave a city so close together that their pips overlap, only the first pip of each track is offered (choose: true) so you pick the track first. */
     function optPos(o) {
       const hop = M.hops[o.hop]; if (o.dd >= hop.nd) { const c = P.city[o.to]; return [c.x, c.y]; }
       const pt = hop.dotpts[(o.from === hop.a ? o.dd : hop.nd - o.dd) - 1]; return [pt[0], pt[1]];
+    }
+    function stepOptions(g) {
+      const w = g.walk; if (!w || w.done || w.rem <= 0) return [];
+      const out = [];
+      const along = (hopId, from, to, start, jstart) => { const hop = M.hops[hopId]; for (let d = start + 1; d <= Math.min(hop.nd, start + w.rem); d++) { const o = { hop: hopId, from, to, dd: d }; if (jstart !== undefined) o.jstart = jstart; out.push(o); } };
+      if (w.at === 'hop') {
+        along(w.hop, w.from, w.to, w.dd);
+        const h = M.hops[w.hop], abs = w.from === h.a ? w.dd : h.nd - w.dd;
+        ((P.J[w.hop] || {})[abs] || []).forEach(x => { // a crossing: carry on along the other track, either way
+          const h2 = M.hops[x.hop];
+          along(x.hop, h2.a, h2.b, x.dd, x.dd);
+          along(x.hop, h2.b, h2.a, h2.nd - x.dd, h2.nd - x.dd);
+        });
+        return out;
+      }
+      P.adj[w.city].forEach(e => along(e.hop, w.city, e.to, 0));
+      const firsts = out.filter(o => o.dd === 1);
+      if (firsts.length > 1) {
+        let close = false; for (let i = 0; i < firsts.length && !close; i++) for (let j = i + 1; j < firsts.length; j++) { const a = optPos(firsts[i]), b = optPos(firsts[j]); if (Math.hypot(a[0] - b[0], a[1] - b[1]) < 34) { close = true; break; } }
+        if (close) return firsts.map(o => Object.assign({ choose: true }, o));
+      }
+      return out;
     }
     function suggestedStep(g) { // the furthest option along the planned route
       const w = g.walk, p = cur(g), opts = stepOptions(g); if (!opts.length) return -1;
       let hopId;
       if (w.at === 'hop') hopId = w.hop; else { const r = route(g, p.id, w.city, p.dest, g.routeMode || 'balanced'); if (!r.length) return -1; hopId = r[0].hop; }
-      let best = -1; opts.forEach((o, i) => { if (o.hop === hopId && (best < 0 || o.dd > opts[best].dd)) best = i; }); return best;
+      let best = -1; opts.forEach((o, i) => { if (o.hop === hopId && o.jstart === undefined && (best < 0 || o.dd > opts[best].dd)) best = i; }); return best;
     }
     function stepOne(g, o) {
       const w = g.walk, hop = M.hops[o.hop], last = w.segs[w.segs.length - 1]; w.rem--;
@@ -250,25 +318,28 @@
       if (o.dd >= hop.nd) { w.at = 'city'; w.city = o.to; w.hop = null; w.from = null; w.to = null; w.dd = 0; } else { w.at = 'hop'; w.city = null; w.hop = o.hop; w.from = o.from; w.to = o.to; w.dd = o.dd; }
       if (w.at === 'city' && w.city === cur(g).dest) { w.arrived = true; w.done = true; } else if (w.rem === 0) w.done = true;
     }
-    function stepWalk(g, i) { // click one pip: jumps every pip up to it on the same track
+    function stepWalk(g, i) { // click one pip: jumps every pip up to it along the same track (changing track first if it is a crossing)
       const w = g.walk, o = stepOptions(g)[i]; if (!o) return false;
+      if (o.jstart !== undefined) { w.at = 'hop'; w.city = null; w.hop = o.hop; w.from = o.from; w.to = o.to; w.dd = o.jstart; }
       const from = w.at === 'hop' ? w.dd : 0;
       for (let d = from + 1; d <= o.dd; d++) stepOne(g, { hop: o.hop, from: o.from, to: o.to, dd: d });
       return true;
     }
-    function undoWalk(g) {
+    function undoWalk(g) { // take back the last pip
       const w = g.walk; if (!w || !w.segs.length) return false;
-      const last = w.segs[w.segs.length - 1], dd = last.start + last.take - 1;
-      last.take--; if (last.take === 0) w.segs.pop();
+      const last = w.segs[w.segs.length - 1]; last.take--; if (last.take === 0) w.segs.pop();
       w.rem++; w.done = false; w.arrived = false;
-      if (dd === 0) { w.at = 'city'; w.city = last.from; w.hop = null; w.from = null; w.to = null; w.dd = 0; } else { w.at = 'hop'; w.city = null; w.hop = last.hop; w.from = last.from; w.to = last.to; w.dd = dd; }
+      const e = w.segs[w.segs.length - 1];
+      if (!e) { Object.assign(w, w.init); return true; }
+      const hop = M.hops[e.hop], dd = e.start + e.take;
+      if (dd >= hop.nd) { w.at = 'city'; w.city = e.to; w.hop = null; w.from = null; w.to = null; w.dd = 0; } else { w.at = 'hop'; w.city = null; w.hop = e.hop; w.from = e.from; w.to = e.to; w.dd = dd; }
       return true;
     }
     function autoWalk(g) {
       const w = g.walk; for (let k = 0; k < 40 && w && !w.done; k++) { const i = suggestedStep(g); if (!stepWalk(g, i < 0 ? 0 : i)) break; }
     }
     function walkFees(g) { // what the walk so far would cost: { notes, total }
-      const w = g.walk, p = cur(g), paid = {}, notes = []; let total = 0;
+      const w = g.walk, p = cur(g), paid = g.bonus ? Object.assign({}, g.turnPaid) : {}, notes = []; let total = 0;
       w.segs.forEach(seg => {
         const f = feeFor(g, p.id, M.hops[seg.hop].rails, paid);
         if (f && !f.free) { paid[f.key] = 1; total += f.amount; notes.push(f.payee < 0 ? 'bank ' + money(f.amount) : g.players[f.payee].name + ' ' + money(f.amount)); }
@@ -277,7 +348,7 @@
     }
     function commitWalk(g) {
       const w = g.walk, p = cur(g); if (!w || !w.done) return false;
-      const notes = []; let used = 0; g.turnPaid = {}; p.turns++;
+      const notes = []; let used = 0; if (!g.bonus) g.turnPaid = {}; p.turns++;
       w.segs.forEach(seg => {
         const hop = M.hops[seg.hop], f = feeFor(g, p.id, hop.rails, g.turnPaid); used += seg.take;
         if (f && !f.free) {
@@ -293,7 +364,7 @@
       if (!arrived) { p.path = pathFor(g, p, g.routeMode || 'balanced'); p.h = 0; }
       g.lastMove = { moved: used, rolled: w.n, notes, arrived };
       log(g, p.name + ' moved ' + used + ' dot' + (used === 1 ? '' : 's') + ' of ' + w.n + (notes.length ? ': ' + notes.join('; ') : '; no fees') + '.', p.id);
-      settle(g, p);
+      settle(g, p); if (!(arrived && p.goingHome && p.dest === p.home)) checkCatch(g);
       if (arrived) arrive(g, p); else endTurn(g);
       return true;
     }
@@ -302,8 +373,8 @@
       if (p.goingHome && p.loc === p.home) { win(g, p); return; }
       p.cash += pay; p.gross += pay; p.trips++; g.trips.push({ p: p.id, from: p.origin, to: p.dest, pays: pay, round: g.round });
       log(g, p.name + ' arrives in ' + p.dest + ' from ' + p.origin + ' and collects ' + money(pay) + ' (cash ' + money(p.cash) + ').', p.id);
-      p.dest = null; p.origin = null; p.path = []; p.h = 0; p.dd = 0; p.via = [];
-      if (p.cash >= g.cfg.win) { p.goingHome = true; log(g, p.name + ' has ' + money(p.cash) + ': head for home (' + p.home + ') to win.', p.id); }
+      p.dest = null; p.origin = null; p.path = []; p.h = 0; p.dd = 0; p.via = []; p.mustRun = false;
+      if (p.cash >= g.cfg.win) log(g, p.name + ' has ' + money(p.cash) + ': next time, declare for home (' + p.home + ') to win.', p.id);
       g.phase = 'buy';
     }
     function settle(g, p) { // negative cash: sell rails to the bank at half price, cheapest first
@@ -362,12 +433,13 @@
     function botAct(g) {
       const p = cur(g); if (!p.bot || g.phase === 'over') return null;
       if (g.phase === 'dest') {
+        if (g.stage === 'declare') { declareHome(g); return 'declares for home'; }
         if (g.stage === 'region') { rollRegion(g); return 'rolls the destination'; }
         if (g.stage === 'pick') { pickRegion(g, botPickRegion(g, p)); return 'chooses a region'; }
         if (g.stage === 'city') { rollCity(g); return 'rolls the city'; }
       }
       if (g.phase === 'route') { rollMove(g); return 'moves'; }
-      if (g.phase === 'buy') { botBuy(g, p); endTurn(g); return 'ends the turn'; }
+      if (g.phase === 'buy') { botBuy(g, p); if (canBonus(g)) { startBonus(g); return 'uses the Super Chief'; } endTurn(g); return 'ends the turn'; }
       return null;
     }
 
@@ -391,7 +463,7 @@
         players: stats(g), trips: g.trips.map(t => ({ player: g.players[t.p].name, from: t.from, to: t.to, pays: t.pays, round: t.round })), owners: g.owner };
     }
 
-    return { M, P, newGame, rollRegion, pickRegion, rollCity, setDest, setRoute, toggleVia, clearVia, route, routeInfo, rollMove, rollMoveStep, stepOptions, stepWalk, undoWalk, autoWalk, commitWalk, walkFees, suggestedStep, optPos, move, buyRail, buyChief, canBuy, canBuyChief, endTurn, botAct, stats, tokenPos, exportLog,
+    return { M, P, newGame, rollRegion, pickRegion, rollCity, setDest, setRoute, toggleVia, clearVia, route, routeInfo, declareHome, startBonus, canBonus, rollMove, rollMoveStep, stepOptions, stepWalk, undoWalk, autoWalk, commitWalk, walkFees, suggestedStep, optPos, move, buyRail, buyChief, canBuy, canBuyChief, endTurn, botAct, stats, tokenPos, exportLog,
       payoff, units, money, cur, allSold, regionOf, railScore, feeFor };
   }
 
