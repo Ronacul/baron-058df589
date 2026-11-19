@@ -7,7 +7,7 @@
   const $ = id => document.getElementById(id);
   const esc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const FACE = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
-  let g = null, prefs = { speed: 650, follow: false, manual: false, tags: true, homes: true, step: true }, botTimer = null, paused = false, routeMode = 'balanced', hi = null, flashId = -1, tip = null, lastKey = '', introUntil = 0;
+  let g = null, prefs = { speed: 650, follow: false, manual: false, tags: true, homes: true, step: true }, botTimer = null, paused = false, routeMode = 'balanced', hi = null, flashId = -1, animHide = -1, anim = null, tip = null, lastKey = '', introUntil = 0;
   try { Object.assign(prefs, JSON.parse(localStorage.getItem(PREF) || '{}')); } catch (e) { /* no storage */ }
   const savePrefs = () => { try { localStorage.setItem(PREF, JSON.stringify(prefs)); } catch (e) { /* ignore */ } };
 
@@ -27,7 +27,7 @@
   }
   function buildMap() {
     svg.innerHTML = '';
-    ['land', 'names', 'halo', 'rails', 'route', 'dots', 'tags', 'hit', 'cities', 'steps', 'tokens'].forEach(n => { layers[n] = el('g', { id: 'L-' + n }, svg); });
+    ['land', 'names', 'halo', 'rails', 'route', 'dots', 'tags', 'hit', 'cities', 'steps', 'tokens', 'anim'].forEach(n => { layers[n] = el('g', { id: 'L-' + n }, svg); });
     const gray = el('g', { fill: '#ece6d6', stroke: '#b5ae9a', 'stroke-width': 0.6 }, layers.land);
     M.land.filter(l => l.r < 0).forEach(l => el('path', { d: l.d }, gray));
     M.regions.forEach((rg, i) => {
@@ -113,7 +113,7 @@
     layers.route.innerHTML = ''; layers.tokens.innerHTML = ''; layers.steps.innerHTML = '';
     if (!g) return;
     const p = B.cur(g);
-    if (p.dest && p.path.length) {
+    if (p.dest && p.path.length && animHide < 0) {
       const segs = []; p.path.slice(p.h).forEach(st => { const h = M.hops[st.hop], pts = h.pts.map(q => [q[0], q[1]]); if (st.from !== h.a) pts.reverse(); segs.push(pts); });
       const d = segs.map(s => smooth(s)).join(' ');
       el('path', { d, fill: 'none', stroke: '#ffd400', 'stroke-width': 13, opacity: 0.55, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, layers.route);
@@ -122,12 +122,15 @@
     drawWalk();
     const seen = {};
     g.players.forEach(pl => {
-      const pos = B.tokenPos(g, pl), key = pos.join(','), n = seen[key] = (seen[key] || 0) + 1, dx = (n - 1) * 13 - 6;
-      const tg = el('g', { transform: 'translate(' + (pos[0] + dx) + ',' + (pos[1] - 22) + ')' }, layers.tokens);
-      if (flashId === pl.id) { const ring = el('circle', { r: 12, fill: 'none', stroke: COLORS[pl.id % COLORS.length], 'stroke-width': 6 }, tg); ring.classList.add('ring'); }
-      el('circle', { r: 12, fill: COLORS[pl.id % COLORS.length], stroke: pl.id === g.turn ? '#000' : '#fff', 'stroke-width': pl.id === g.turn ? 3.5 : 2 }, tg);
-      const t = el('text', { 'text-anchor': 'middle', y: 5, 'font-size': 14, 'font-weight': 800, fill: '#fff' }, tg); t.textContent = (pl.name[0] || '?').toUpperCase();
+      if (!pl.loc) return; // still rolling for a home city
       const col = COLORS[pl.id % COLORS.length];
+      if (pl.id !== animHide) {
+        const pos = B.tokenPos(g, pl), key = pos.join(','), n = seen[key] = (seen[key] || 0) + 1, dx = (n - 1) * 13 - 6;
+        const tg = el('g', { transform: 'translate(' + (pos[0] + dx) + ',' + (pos[1] - 22) + ')' }, layers.tokens);
+        if (flashId === pl.id) { const ring = el('circle', { r: 12, fill: 'none', stroke: col, 'stroke-width': 6 }, tg); ring.classList.add('ring'); }
+        el('circle', { r: 12, fill: col, stroke: pl.id === g.turn ? '#000' : '#fff', 'stroke-width': pl.id === g.turn ? 3.5 : 2 }, tg);
+        const t = el('text', { 'text-anchor': 'middle', y: 5, 'font-size': 14, 'font-weight': 800, fill: '#fff' }, tg); t.textContent = (pl.name[0] || '?').toUpperCase();
+      }
       if (pl.dest) { // everyone's destination stays visible: a ring and the player's letter
         const dc = P.city[pl.dest], dn = (seen['d' + pl.dest] = (seen['d' + pl.dest] || 0) + 1);
         el('circle', { cx: dc.x, cy: dc.y, r: 16 + dn * 9, fill: 'none', stroke: '#fff', 'stroke-width': 11, opacity: 0.85 }, layers.route);
@@ -188,11 +191,19 @@
     const dice = d.manual ? '' : dieHtml(d.col, true) + dieHtml(d.w1) + dieHtml(d.w2);
     return '<div>' + label + ' ' + dice + ' <span class="sum">' + d.parity + ' column, white ' + d.sum + ' &rarr; <b>' + esc(d.kind === 'city' ? d.city : d.region) + '</b></span></div>';
   }
+  function setupHtml() {
+    const s = g.setup; if (!s) return '';
+    if (g.phase === 'order') return '<div><b>Turn order</b> <span class="muted">(highest roll goes first)</span></div>' + s.rolls.map((r, i) => r ? '<div>' + esc(g.players[i].name) + ' ' + dieHtml(r.a) + dieHtml(r.b) + ' = <b>' + r.sum + '</b></div>' : '').join('');
+    const dr = g.destRolls;
+    return '<div><b>Order of play:</b> ' + g.players.map((p, i) => (i + 1) + '. ' + esc(p.name) + (p.home ? ' (' + esc(p.home) + ')' : '')).join(' &middot; ') + '</div>' +
+      (dr && s.last ? '<div style="margin-top:4px"><b>' + esc(s.last) + '</b> rolled a home city:</div>' + (dr.region ? rollLine(dr.region, '<b>1.</b> Region') : '') + (dr.city ? rollLine(dr.city, '<b>2.</b> City') : '') : '');
+  }
   function diceHtml() {
+    if (g && (g.phase === 'order' || g.phase === 'home')) return setupHtml();
     const d = g && g.dice, dr = g && g.destRolls;
     if (dr && (dr.region || dr.city) && (!d || d.kind !== 'move')) return (dr.region ? rollLine(dr.region, '<b>1.</b> Region') : '') + (dr.city ? rollLine(dr.city, '<b>2.</b> City') : '');
     if (!d) return '<div class="muted">Dice appear here.</div>';
-    if (d.kind === 'move') return (d.manual ? '<b>' + d.sum + '</b>' : d.rolls.map(v => dieHtml(v)).join('')) + ' <span class="sum">= ' + d.sum + ' dots</span>';
+    if (d.kind === 'move') return (d.manual ? '<b>' + d.sum + '</b>' : d.rolls.map(v => dieHtml(v)).join('')) + ' <span class="sum">= ' + d.sum + ' dots' + (g.dbl6 ? ' &mdash; <b>DOUBLE SIX!</b>' : '') + '</span>';
     const dice = d.manual ? '' : dieHtml(d.col, true) + dieHtml(d.w1) + dieHtml(d.w2);
     return dice + ' <span class="sum">' + d.parity + ' column, white ' + d.sum + ' &rarr; <b>' + esc(d.kind === 'city' ? d.city : d.region) + '</b></span>';
   }
@@ -203,7 +214,7 @@
       return '<div class="pl' + (p.id === g.turn && g.phase !== 'over' ? ' on' : '') + '" style="border-left-color:' + COLORS[p.id % COLORS.length] + '">' +
         '<div class="pl1"><b>' + esc(p.name) + '</b>' + (p.bot ? ' <span class="tag">bot</span>' : '') + (p.sc ? ' <span class="tag sc" title="Super Chief: after an arrival, a new destination and one extra die the same turn">SC</span>' : '') + (p.goingHome ? ' <span class="tag home">going home</span>' : '') +
         '<span class="cash' + (p.cash < 0 ? ' neg' : '') + '">' + money(p.cash) + '</span></div>' +
-        '<div class="pl2">Home ' + esc(p.home) + ' &middot; at ' + esc(p.loc) + (p.dest ? ' &rarr; <b>' + esc(p.dest) + '</b> (' + left + ' dots)' : '') + '</div>' +
+        '<div class="pl2">' + (p.home ? 'Home ' + esc(p.home) + ' &middot; at ' + esc(p.loc) : 'waiting for a home city') + (p.dest ? ' &rarr; <b>' + esc(p.dest) + '</b> (' + left + ' dots)' : '') + '</div>' +
         '<div class="pl3">' + (rails.length ? rails.map(r => '<span class="rc" style="border-color:' + r.color + '">' + r.code + '</span>').join('') : '<span class="muted">no rails</span>') + ' <span class="muted">trips ' + p.trips + '</span></div></div>';
     }).join('');
   }
@@ -234,7 +245,9 @@
     }
     h += '<div class="who"><span class="dot" style="background:' + COLORS[p.id % COLORS.length] + '"></span><b>' + esc(p.name) + '</b>' + (p.bot ? ' (bot)' : '') + ' &mdash; round ' + g.round + '</div>';
     if (p.bot) return h + '<div class="muted">' + (paused ? 'Paused.' : 'Bot is playing&hellip;') + '</div><div class="row"><button class="b" data-act="pause">' + (paused ? 'Resume bots' : 'Pause bots') + '</button> <button class="b" data-act="skip">Skip to the next human</button></div>';
-    if (g.phase === 'dest') {
+    if (g.phase === 'order') h += '<button class="b pri big" data-act="rollorder">&#127922; Roll for turn order (' + esc(p.name) + ')</button>';
+    else if (g.phase === 'home') h += '<div>Roll for your home city (region, then city).</div><button class="b pri big" data-act="rollhome">&#127922; Roll for home city (' + esc(p.name) + ')</button>';
+    else if (g.phase === 'dest') {
       if (g.stage === 'declare') h += '<div class="win">You have ' + money(p.cash) + '. Instead of a new destination you must <b>declare for home</b> (' + esc(p.home) + '). Anyone who ends a move in the same city as you catches you: you pay them ' + money(M.cfg.catchFee) + ' and must run a new destination.</div><button class="b pri big" data-act="declare">&#127968; Declare: head for ' + esc(p.home) + '</button>';
       if (g.stage === 'region') h += '<button class="b pri big" data-act="rollregion">&#127922; Roll 1 of 2: destination region</button>' + (prefs.manual ? manualForm('region') : '');
       if (g.stage === 'pick') h += '<div>You rolled your own region. Choose any region:</div><div class="chips">' + M.regions.filter(r => r.name !== B.regionOf(p.loc)).map(r => '<button class="b chip" style="border-color:' + r.line + '" data-act="pick" data-r="' + esc(r.name) + '">' + esc(r.name) + '</button>').join('') + '</div>';
@@ -251,7 +264,7 @@
         '<button class="b pri big" data-act="finish"' + (w.done ? '' : ' disabled') + '>Finish move</button>';
     } else if (g.phase === 'buy') {
       h += '<div class="arr">' + esc(g.log[g.log.length - 1] ? '' : '') + 'Arrived. Buy rails in the list below' + (g.cfg.superChief > 0 && !p.sc ? ' or the Super Chief' : '') + ', then end your turn.</div>' +
-        '<div class="row">' + (B.canBuyChief(g, p.id) ? '<button class="b" data-act="chief">Buy Super Chief ' + money(g.cfg.superChief) + '</button> ' : '') + (B.canBonus(g) ? '<button class="b pri big" data-act="bonus">&#127922; Super Chief: roll a new destination + one die</button>' : '') + '<button class="b' + (B.canBonus(g) ? '' : ' pri') + ' big" data-act="end">End turn</button></div>';
+        '<div class="row">' + (B.canBuyChief(g, p.id) ? '<button class="b" data-act="chief">Buy Super Chief ' + money(g.cfg.superChief) + '</button> ' : '') + (B.canBonus(g) ? '<button class="b pri big" data-act="bonus">&#127922; ' + (p.sc ? 'Super Chief' : 'Double six') + ': roll a new destination + one die</button>' : '') + '<button class="b' + (B.canBonus(g) ? '' : ' pri') + ' big" data-act="end">End turn</button></div>';
     }
     return h;
   }
@@ -299,7 +312,7 @@
     box.innerHTML = h; box.hidden = false;
   }
   function handleMapClick(t) {
-    if (!t || !g || !t.closest) return;
+    if (!t || !g || !t.closest || anim) return;
     const pip = t.closest('[data-pip]');
     if (pip && g.phase === 'walk') { B.stepWalk(g, +pip.getAttribute('data-pip')); render(); return; }
     const h = t.closest('[data-hit]'); if (h) { selectRail(h.getAttribute('data-hit')); return; }
@@ -340,11 +353,40 @@
   function scheduleBot() {
     clearTimeout(botTimer); if (!g || g.phase === 'over' || paused) return;
     const p = B.cur(g); if (!p.bot) return;
-    botTimer = setTimeout(() => { B.botAct(g); afterAction(); }, prefs.speed + Math.max(0, introUntil - performance.now()));
+    botTimer = setTimeout(() => { const q = B.cur(g); if (g.phase === 'route' && q.bot) botMoveAnim(q); else { B.botAct(g); afterAction(); } }, prefs.speed + Math.max(0, introUntil - performance.now()));
+  }
+  /* a bot's move: zoom to the whole map, ring where it starts, then walk it pip by pip while the roll counts down */
+  function botMoveAnim(p) {
+    const snap = { id: p.id, name: p.name, path: p.path.slice(), h: p.h, dd: p.dd, loc: p.loc, dest: p.dest }, col = COLORS[p.id % COLORS.length];
+    B.botAct(g); const mv = g.lastMove, rolls = g.dice && g.dice.rolls ? g.dice.rolls : [];
+    if (!mv || !mv.moved) { afterAction(); return; }
+    const start = snap.dd > 0 ? posAt(snap.path[snap.h], snap.dd) : (c => [c.x, c.y])(P.city[snap.loc]), pts = [];
+    let h = snap.h, dd = snap.dd, rem = mv.moved;
+    while (rem > 0 && h < snap.path.length) { const st = snap.path[h], take = Math.min(rem, st.dots - dd); for (let k = 1; k <= take; k++) pts.push(posAt(st, dd + k)); dd += take; rem -= take; if (dd >= st.dots) { h++; dd = 0; } }
+    const dice = rolls.map(v => FACE[v]).join(' '), fast = prefs.speed <= 120, stepMs = fast ? 70 : prefs.speed >= 1300 ? 500 : 320, holdMs = fast ? 250 : 1200;
+    anim = { id: p.id }; animHide = p.id; clearTimeout(flashTimer); flashId = -1; closeTip();
+    $('main').classList.add('animfull'); const pb = $('pipbox'); pb.hidden = false;
+    vb = Object.assign({}, vbFull); cancelView(); applyView(); updateMap();
+    const draw = (i) => {
+      layers.anim.innerHTML = '';
+      if (snap.dest && mv.arrived) { const dc = P.city[snap.dest]; el('circle', { cx: dc.x, cy: dc.y, r: 24, fill: 'none', stroke: '#fff', 'stroke-width': 11 }, layers.anim); el('circle', { cx: dc.x, cy: dc.y, r: 24, fill: 'none', stroke: col, 'stroke-width': 7 }, layers.anim); }
+      const sr = el('circle', { cx: start[0], cy: start[1], r: 22, fill: 'none', stroke: col, 'stroke-width': 6, 'stroke-dasharray': '9 5' }, layers.anim); if (i === 0) sr.classList.add('ring');
+      const trail = [start].concat(pts.slice(0, i)); if (trail.length > 1) el('polyline', { points: trail.map(q => q.join(',')).join(' '), fill: 'none', stroke: col, 'stroke-width': 10, opacity: 0.85, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, layers.anim);
+      pts.slice(0, i).forEach(q => el('circle', { cx: q[0], cy: q[1], r: 4, fill: '#fff', stroke: col, 'stroke-width': 2 }, layers.anim));
+      const pos = i ? pts[i - 1] : start, tg = el('g', { transform: 'translate(' + pos[0] + ',' + (pos[1] - 22) + ')' }, layers.anim);
+      el('circle', { r: 14, fill: col, stroke: '#000', 'stroke-width': 3.5 }, tg); const tx = el('text', { 'text-anchor': 'middle', y: 5, 'font-size': 15, 'font-weight': 800, fill: '#fff' }, tg); tx.textContent = (snap.name[0] || '?').toUpperCase();
+      const left = mv.rolled - i; pb.innerHTML = '<span>' + esc(snap.name) + ' rolled ' + dice + ' = ' + mv.rolled + (g.dbl6 && !g.bonus ? ' DOUBLE SIX' : '') + '</span><b>' + left + '</b><span>pip' + (left === 1 ? '' : 's') + ' left' + (i === pts.length && left > 0 ? ' (lost on arrival)' : '') + '</span>';
+    };
+    const finish = () => { anim = null; animHide = -1; layers.anim.innerHTML = ''; $('main').classList.remove('animfull'); afterAction(); };
+    draw(0);
+    let i = 0; const tick = () => { if (i >= pts.length) { setTimeout(finish, fast ? 150 : 800); return; } i++; draw(i); setTimeout(tick, stepMs); };
+    setTimeout(tick, holdMs);
   }
   function act(a, el) {
-    if (!g) return; const p = B.cur(g);
-    if (a === 'rollregion') { B.rollRegion(g); }
+    if (!g || anim) return; const p = B.cur(g);
+    if (a === 'rollorder') { B.rollOrder(g); }
+    else if (a === 'rollhome') { B.rollHomeStep(g); }
+    else if (a === 'rollregion') { B.rollRegion(g); }
     else if (a === 'pick') { B.pickRegion(g, el.dataset.r); }
     else if (a === 'declare') { B.declareHome(g); routeMode = 'balanced'; }
     else if (a === 'bonus') { B.startBonus(g); }
@@ -417,6 +459,8 @@
       '<li><b>Destination:</b> coloured die odd/even + two white dice pick a region, then a second roll picks the city. Roll your own region and you may choose any region.</li>' +
       '<li><b>Moving:</b> roll 2 dice of dots a turn. Dots left over at arrival are lost. Tap pips to pick your own path; where two tracks cross you may change tracks (you pay the fee of any track you ride).</li>' +
       '<li><b>Super Chief (' + money(c.superChief) + '):</b> after an arrival you collect, buy, roll a new destination and move one more die the same turn. Fees already paid that turn are not paid again.</li>' +
+      '<li><b>Double six:</b> rolling two sixes on the movement dice gives you the Super Chief bonus for that turn (the bonus die cannot chain).</li>' +
+      '<li><b>Start of a game:</b> everyone rolls for turn order, then in that order for a home city; then play begins with a destination roll in that order.</li>' +
       '<li><b>Declare:</b> at ' + money(c.win) + ' you must declare for home instead of rolling a destination. If another player who is not running home ends a move in the same city as you, you are caught: you pay them ' + money(c.catchFee) + ' and must run a new destination (paid from where you declared).</li>' +
       '<li><b>Payoff:</b> $1K per dot of the shortest track route from where your trip started.</li>' +
       '<li><b>Fees, once a turn:</b> ' + money(c.feePublic) + ' to the bank if you use any public rail; ' + money(c.feePrivate) + ' to each owner whose rails you use (' + money(c.feeAllSold) + ' once every rail is sold). Your own rails are free.</li>' +

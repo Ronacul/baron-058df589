@@ -85,16 +85,39 @@
         players: []
       };
       s.players.forEach((pl, i) => {
-        const home = rollHome(g);
         g.players.push({
-          id: i, name: pl.name || ('Player ' + (i + 1)), bot: !!pl.bot, home, loc: home, dest: null, origin: null, path: [], h: 0, dd: 0,
+          id: i, name: pl.name || ('Player ' + (i + 1)), bot: !!pl.bot, home: null, loc: null, dest: null, origin: null, path: [], h: 0, dd: 0,
           cash: g.cfg.start, sc: false, goingHome: false, trips: 0, turns: 0, gross: 0, paid: 0, received: 0, sold: 0,
           f1: 0, f5: 0, f10: 0, r5: 0, r10: 0
         });
-        log(g, (pl.name || 'Player ' + (i + 1)) + ' starts in ' + home + ' with ' + money(g.cfg.start) + '.', i);
       });
-      startTurn(g);
+      /* the game opens with two set-up rounds: everyone rolls for turn order, then (in that order) for a home city */
+      g.phase = 'order'; g.turn = 0; g.setup = { i: 0, rolls: [], last: null };
+      log(g, 'Roll for turn order: the highest roll goes first.');
       return g;
+    }
+    function rollOrder(g) {
+      const s = g.setup; if (g.phase !== 'order' || !s) return null;
+      const p = g.players[s.i], a = d6(g), b = d6(g); s.rolls[s.i] = { a, b, sum: a + b, tb: rnd(g) };
+      log(g, p.name + ' rolled ' + a + ' + ' + b + ' = ' + (a + b) + ' for turn order.', p.id);
+      s.i++;
+      if (s.i < g.players.length) { g.turn = s.i; return s.rolls[s.i - 1]; }
+      const idx = g.players.map((_, i) => i).sort((x, y) => (s.rolls[y].sum - s.rolls[x].sum) || (s.rolls[y].tb - s.rolls[x].tb));
+      const tied = new Set(); s.rolls.forEach((r, i) => s.rolls.forEach((q, j) => { if (i !== j && r.sum === q.sum) tied.add(i); }));
+      g.players = idx.map((o, k) => { const q = g.players[o]; q.id = k; return q; }); s.rolls = idx.map(o => s.rolls[o]);
+      log(g, 'Order of play: ' + g.players.map((q, k) => (k + 1) + '. ' + q.name).join(', ') + (tied.size ? ' (ties settled by a re-roll)' : '') + '. Now each rolls for a home city, in that order.');
+      g.phase = 'home'; s.i = 0; g.turn = 0; return null;
+    }
+    function rollHomeStep(g) { // region roll then city roll, shown together
+      const s = g.setup; if (g.phase !== 'home' || !s) return null;
+      const p = g.players[s.i], r = tableRoll(g), region = M.tracker.regions[r.parity][r.sum], tab = M.tracker.cityTables[region];
+      const d1 = { kind: 'region', ...r, region }; let city = region, d2 = null;
+      if (tab) { const r2 = tableRoll(g); city = tab[r2.parity][r2.sum]; d2 = { kind: 'city', ...r2, region, city }; }
+      p.home = p.loc = city; g.destRolls = d2 ? { region: d1, city: d2 } : { region: d1 }; g.dice = d2 || d1; s.last = p.name;
+      log(g, p.name + ' rolled region ' + region + (tab ? ' then city ' + city : '') + ': home is ' + city + ', starting with ' + money(g.cfg.start) + '.', p.id);
+      s.i++;
+      if (s.i < g.players.length) { g.turn = s.i; return city; }
+      g.turn = 0; g.round = 1; startTurn(g); return city;
     }
 
     /* ---------- dice and tables ---------- */
@@ -111,7 +134,7 @@
       }
     }
     function startTurn(g) {
-      const p = cur(g); g.turnPaid = {}; g.bonus = false; g.dice = null; g.destRolls = null; g.moveNote = null; g.lastMove = null; g.walk = null;
+      const p = cur(g); g.turnPaid = {}; g.bonus = false; g.dbl6 = false; g.dice = null; g.destRolls = null; g.moveNote = null; g.lastMove = null; g.walk = null;
       if (p.goingHome && p.loc === p.home) { win(g, p); return; }
       if (p.dest) { g.phase = 'route'; } else beginDest(g);
     }
@@ -137,10 +160,14 @@
       });
     }
     /* Super Chief: after an arrival, collect, buy, then roll a new destination and move one die in the same turn */
-    function canBonus(g) { const p = cur(g); return g.phase === 'buy' && p.sc && !g.bonus; }
+    function canBonus(g) { const p = cur(g); return g.phase === 'buy' && (p.sc || g.dbl6) && !g.bonus; }
     function startBonus(g) {
       if (!canBonus(g)) return false;
-      g.bonus = true; log(g, cur(g).name + ' uses the Super Chief: a new destination and one more die this turn.', g.turn); beginDest(g); return true;
+      g.bonus = true; log(g, cur(g).name + (cur(g).sc ? ' uses the Super Chief' : ' uses the double six') + ': a new destination and one more die this turn.', g.turn); beginDest(g); return true;
+    }
+    /* double six on the two movement dice gives the Super Chief bonus for that turn (once; the bonus die itself cannot chain) */
+    function checkDouble6(g, rolls) {
+      if (!g.bonus && rolls.length === 2 && rolls[0] === 6 && rolls[1] === 6) { g.dbl6 = true; log(g, cur(g).name + ' rolled DOUBLE SIX: if they arrive they get the Super Chief bonus (new destination + one die) this turn.', g.turn); }
     }
     function win(g, p) { g.winner = p.id; g.phase = 'over'; log(g, p.name + ' is home with ' + money(p.cash) + ' and wins on round ' + g.round + '!', p.id); }
 
@@ -240,7 +267,7 @@
     function rollMove(g, manualSum) {
       const p = cur(g), n = g.bonus ? 1 : C.dice, rolls = [];
       let sum = 0; if (manualSum) { sum = manualSum; } else { for (let i = 0; i < n; i++) { const v = d6(g); rolls.push(v); sum += v; } }
-      g.dice = { kind: 'move', rolls, sum, manual: !!manualSum };
+      g.dice = { kind: 'move', rolls, sum, manual: !!manualSum }; checkDouble6(g, rolls);
       return move(g, sum);
     }
     function move(g, n) {
@@ -271,7 +298,7 @@
     function rollMoveStep(g, manualSum) {
       const p = cur(g), n = g.bonus ? 1 : C.dice, rolls = []; let sum = 0;
       if (manualSum) sum = manualSum; else for (let i = 0; i < n; i++) { const v = d6(g); rolls.push(v); sum += v; }
-      g.dice = { kind: 'move', rolls, sum, manual: !!manualSum };
+      g.dice = { kind: 'move', rolls, sum, manual: !!manualSum }; checkDouble6(g, rolls);
       const first = p.dd > 0 ? p.path[p.h] : null;
       g.walk = { n: sum, rem: sum, segs: [], at: first ? 'hop' : 'city', city: first ? null : p.loc, hop: first ? first.hop : null, from: first ? first.from : null, to: first ? first.to : null, dd: first ? p.dd : 0, done: false, arrived: false };
       g.walk.init = { at: g.walk.at, city: g.walk.city, hop: g.walk.hop, from: g.walk.from, to: g.walk.to, dd: g.walk.dd };
@@ -432,6 +459,8 @@
     /* one bot action per call, so the page can show each step */
     function botAct(g) {
       const p = cur(g); if (!p.bot || g.phase === 'over') return null;
+      if (g.phase === 'order') { rollOrder(g); return 'rolls for turn order'; }
+      if (g.phase === 'home') { rollHomeStep(g); return 'rolls for a home city'; }
       if (g.phase === 'dest') {
         if (g.stage === 'declare') { declareHome(g); return 'declares for home'; }
         if (g.stage === 'region') { rollRegion(g); return 'rolls the destination'; }
@@ -450,6 +479,7 @@
       }));
     }
     function tokenPos(g, p) { // [x,y] on the map for a player
+      if (!p.loc) return [M.view[0] + M.view[2] / 2, M.view[1] + M.view[3] / 2];
       if (g.walk && p.id === g.turn) { const w = g.walk; if (w.at === 'hop') { const hop = M.hops[w.hop], pt = hop.dotpts[(w.from === hop.a ? w.dd : hop.nd - w.dd) - 1]; if (pt) return [pt[0], pt[1]]; } else { const c = P.city[w.city]; return [c.x, c.y]; } }
       if (p.path.length && p.h < p.path.length && p.dd > 0) {
         const st = p.path[p.h], hop = M.hops[st.hop], k = st.from === hop.a ? p.dd : hop.nd - p.dd;
@@ -463,7 +493,7 @@
         players: stats(g), trips: g.trips.map(t => ({ player: g.players[t.p].name, from: t.from, to: t.to, pays: t.pays, round: t.round })), owners: g.owner };
     }
 
-    return { M, P, newGame, rollRegion, pickRegion, rollCity, setDest, setRoute, toggleVia, clearVia, route, routeInfo, declareHome, startBonus, canBonus, rollMove, rollMoveStep, stepOptions, stepWalk, undoWalk, autoWalk, commitWalk, walkFees, suggestedStep, optPos, move, buyRail, buyChief, canBuy, canBuyChief, endTurn, botAct, stats, tokenPos, exportLog,
+    return { M, P, newGame, rollRegion, pickRegion, rollCity, setDest, setRoute, toggleVia, clearVia, route, routeInfo, rollOrder, rollHomeStep, declareHome, startBonus, canBonus, rollMove, rollMoveStep, stepOptions, stepWalk, undoWalk, autoWalk, commitWalk, walkFees, suggestedStep, optPos, move, buyRail, buyChief, canBuy, canBuyChief, endTurn, botAct, stats, tokenPos, exportLog,
       payoff, units, money, cur, allSold, regionOf, railScore, feeFor };
   }
 
