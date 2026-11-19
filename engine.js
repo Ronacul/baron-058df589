@@ -1,6 +1,6 @@
-/* Baron engine: the rules of a Rail Baron style game. No DOM, no network.
+/* Game engine: the rules of a railroad dice-and-destinations game. No DOM, no network.
    One map = one data object (see data-eurobaron.js). The tables inside MAP.tracker use the same shape as the
-   Rail Baron tracker (cities, m = payoff matrix row by row, regions odd/even, cityTables), so game logs can feed it later.
+   our stats tracker (cities, m = payoff matrix row by row, regions odd/even, cityTables), so game logs can feed it later.
    Rules as implemented (change them in MAP.cfg or in the functions below; assumptions are marked ASSUMED):
    - Destination: coloured die odd/even + two white dice (sum 2-12) pick a region, then a second roll picks the city in it.
      Rolling the region you are in lets you PICK any region, then the city roll is made in it.
@@ -11,7 +11,7 @@
      city where they declared.
    - Payoff on arrival = shortest track distance in dots from where the trip started, times MAP.unit.
    - Fees, once per turn: 1K to the bank if you used any public rail; 5K (10K once every rail is sold) to each owner whose rail you used; own rails free.
-   - Rails can be bought at every arrival. Super Chief can be bought at every arrival (ASSUMED).
+   - Rails can be bought at every arrival. Express can be bought at every arrival (ASSUMED).
    - Win: reach the win cash at an arrival, then reach your home city.
    - Cash below zero: rails are sold to the bank at half price, cheapest first (ASSUMED). */
 (function (root) {
@@ -169,15 +169,15 @@
         if (!mover.goingHome && o.goingHome) caught(g, o, mover); // only the mover can catch: a runner may cross anyone on their own turn
       });
     }
-    /* Super Chief: after an arrival, collect, buy, then roll a new destination and move one die in the same turn */
+    /* Express: after an arrival, collect, buy, then roll a new destination and move one die in the same turn */
     function canBonus(g) { const p = cur(g); return g.phase === 'buy' && ((p.sc && !p.scNew) || g.dbl6) && !g.bonus; }
     function startBonus(g) {
       if (!canBonus(g)) return false;
-      g.bonus = true; log(g, cur(g).name + (cur(g).sc ? ' uses the Super Chief' : ' uses the double six') + ': a new destination and one more die this turn.', g.turn); beginDest(g); return true;
+      g.bonus = true; log(g, cur(g).name + (cur(g).sc ? ' uses the Express' : ' uses the double six') + ': a new destination and one more die this turn.', g.turn); beginDest(g); return true;
     }
-    /* double six on the two movement dice gives the Super Chief bonus for that turn (once; the bonus die itself cannot chain) */
+    /* double six on the two movement dice gives the Express bonus for that turn (once; the bonus die itself cannot chain) */
     function checkDouble6(g, rolls) {
-      if (!g.bonus && rolls.length === 2 && rolls[0] === 6 && rolls[1] === 6) { g.dbl6 = true; log(g, cur(g).name + ' rolled DOUBLE SIX: if they arrive they get the Super Chief bonus (new destination + one die) this turn.', g.turn); }
+      if (!g.bonus && rolls.length === 2 && rolls[0] === 6 && rolls[1] === 6) { g.dbl6 = true; log(g, cur(g).name + ' rolled DOUBLE SIX: if they arrive they get the Express bonus (new destination + one die) this turn.', g.turn); }
     }
     function win(g, p) { g.winner = p.id; g.phase = 'over'; log(g, p.name + ' is home with ' + money(p.cash) + ' and wins on round ' + g.round + '!', p.id); }
 
@@ -313,7 +313,7 @@
       const first = p.dd > 0 ? p.path[p.h] : null;
       g.walk = { n: sum, rem: sum, segs: [], at: first ? 'hop' : 'city', city: first ? null : p.loc, hop: first ? first.hop : null, from: first ? first.from : null, to: first ? first.to : null, dd: first ? p.dd : 0, done: false, arrived: false };
       g.walk.init = { at: g.walk.at, city: g.walk.city, hop: g.walk.hop, from: g.walk.from, to: g.walk.to, dd: g.walk.dd };
-      g.phase = 'walk'; log(g, p.name + ' rolled ' + sum + (g.bonus ? ' on the Super Chief die' : '') + ': click the pips to move.', p.id);
+      g.phase = 'walk'; log(g, p.name + ' rolled ' + sum + (g.bonus ? ' on the Express die' : '') + ': click the pips to move.', p.id);
       return g.walk;
     }
     /* every pip you can click: along the track you are on as far as the roll reaches, onto any track that crosses it, and (at a city) down every track.
@@ -435,7 +435,7 @@
     function canBuyChief(g, pi) { const p = g.players[pi]; return g.phase === 'buy' && !g.bought && !p.sc && g.cfg.superChief > 0 && p.cash >= g.cfg.superChief; }
     function buyChief(g, pi) {
       if (!canBuyChief(g, pi)) return false;
-      const p = g.players[pi]; p.cash -= g.cfg.superChief; p.sc = true; p.scNew = true; g.bought = true; log(g, p.name + ' buys the Super Chief for ' + money(g.cfg.superChief) + ' (its bonus starts next turn).', pi); return true;
+      const p = g.players[pi]; p.cash -= g.cfg.superChief; p.sc = true; p.scNew = true; g.bought = true; log(g, p.name + ' buys the Express for ' + money(g.cfg.superChief) + ' (its bonus starts next turn).', pi); return true;
     }
     function endTurn(g) {
       if (g.phase === 'over') return;
@@ -495,7 +495,7 @@
         if (g.stage === 'city') { rollCity(g); return 'rolls the city'; }
       }
       if (g.phase === 'route') { if (botChase(g, p)) return 'chases the runner'; rollMove(g); return 'moves'; }
-      if (g.phase === 'buy') { botBuy(g, p); if (canBonus(g)) { startBonus(g); return 'uses the Super Chief'; } endTurn(g); return 'ends the turn'; }
+      if (g.phase === 'buy') { botBuy(g, p); if (canBonus(g)) { startBonus(g); return 'uses the Express'; } endTurn(g); return 'ends the turn'; }
       return null;
     }
 

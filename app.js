@@ -1,4 +1,4 @@
-/* Baron playtest page: draws the map and runs the engine for people and bots. */
+/* Iron Meridian playtest page: draws the map and runs the engine for people and bots. */
 (function () {
   'use strict';
   const M = window.BARON_MAPS.EU, B = Baron(M), P = B.P, NS = 'http://www.w3.org/2000/svg';
@@ -215,7 +215,7 @@
       const rails = M.rails.filter(r => g.owner[r.code] === p.id);
       const left = p.dest ? p.path.slice(p.h).reduce((s, st) => s + st.dots, 0) - p.dd : 0;
       return '<div class="pl' + (p.id === g.turn && g.phase !== 'over' ? ' on' : '') + '" style="border-left-color:' + COLORS[p.id % COLORS.length] + '">' +
-        '<div class="pl1"><b>' + esc(p.name) + '</b>' + (p.bot ? ' <span class="tag">bot</span>' : '') + (p.sc ? ' <span class="tag sc" title="Super Chief: after an arrival, a new destination and one extra die the same turn">SC</span>' : '') + (p.goingHome ? ' <span class="tag home">going home</span>' : '') +
+        '<div class="pl1"><b>' + esc(p.name) + '</b>' + (p.bot ? ' <span class="tag">bot</span>' : '') + (p.sc ? ' <span class="tag sc" title="Express: after an arrival, a new destination and one extra die the same turn">SC</span>' : '') + (p.goingHome ? ' <span class="tag home">going home</span>' : '') +
         '<span class="cash' + (p.cash < 0 ? ' neg' : '') + '">' + money(p.cash) + '</span></div>' +
         '<div class="pl2">' + (p.home ? 'Home ' + esc(p.home) + ' &middot; at ' + esc(p.loc) : 'waiting for a home city') + (p.dest ? ' &rarr; <b>' + esc(p.dest) + '</b> (' + left + ' dots)' : '') + '</div>' +
         '<div class="pl3">' + (rails.length ? rails.map(r => '<span class="rc" style="border-color:' + r.color + '">' + r.code + '</span>').join('') : '<span class="muted">no rails</span>') + ' <span class="muted">trips ' + p.trips + '</span></div></div>';
@@ -258,7 +258,7 @@
     } else if (g.phase === 'route') {
       const left = p.path.slice(p.h).reduce((s, st) => s + st.dots, 0) - p.dd;
       h += '<div>Destination <b>' + esc(p.dest) + '</b> &middot; ' + left + ' dots left &middot; pays ' + money(B.payoff(p.origin, p.dest)) + '</div>' + routeBox(p) +
-        '<button class="b pri big" data-act="rollmove">&#127922; Roll to move (' + (g.bonus ? '1 die, Super Chief' : '2 dice') + ')</button>' + (prefs.manual ? '<div class="manual"><span class="muted">Dots by hand:</span> <input id="mdots" type="number" min="1" max="18" value="7"> <button class="b" data-act="mmove">Use</button></div>' : '');
+        '<button class="b pri big" data-act="rollmove">&#127922; Roll to move (' + (g.bonus ? '1 die, Express' : '2 dice') + ')</button>' + (prefs.manual ? '<div class="manual"><span class="muted">Dots by hand:</span> <input id="mdots" type="number" min="1" max="18" value="7"> <button class="b" data-act="mmove">Use</button></div>' : '');
     } else if (g.phase === 'walk' && g.walk) {
       const w = g.walk, fe = B.walkFees(g);
       h += '<div class="walk"><span class="rem">' + w.rem + '</span> of ' + w.n + ' dots left. Tap any pip along a track to jump straight to it (the big pulsing one is the furthest you can go); yellow is your planned route.' + (w.arrived ? ' <b>You are in ' + esc(p.dest) + '!</b>' : '') + '</div>' +
@@ -266,8 +266,8 @@
         '<div class="row"><button class="b" data-act="undo"' + (w.segs.length ? '' : ' disabled') + '>Undo a pip</button> <button class="b" data-act="autowalk"' + (w.done ? ' disabled' : '') + '>Fill the rest along the route</button></div>' +
         '<button class="b pri big" data-act="finish"' + (w.done ? '' : ' disabled') + '>Finish move</button>';
     } else if (g.phase === 'buy') {
-      h += '<div class="arr">' + esc(g.log[g.log.length - 1] ? '' : '') + 'Arrived. ' + (g.bought ? 'You have made your one purchase this turn.' : 'You may make one purchase this turn: a rail from the list below' + (g.cfg.superChief > 0 && !p.sc ? ' or the Super Chief' : '') + '.') + (p.scNew ? ' The Super Chief bonus starts next turn.' : '') + '</div>' +
-        '<div class="row">' + (B.canBuyChief(g, p.id) ? '<button class="b" data-act="chief">Buy Super Chief ' + money(g.cfg.superChief) + '</button> ' : '') + (B.canBonus(g) ? '<button class="b pri big" data-act="bonus">&#127922; ' + (p.sc ? 'Super Chief' : 'Double six') + ': roll a new destination + one die</button>' : '') + '<button class="b' + (B.canBonus(g) ? '' : ' pri') + ' big" data-act="end">End turn</button></div>';
+      h += '<div class="arr">' + esc(g.log[g.log.length - 1] ? '' : '') + 'Arrived. ' + (g.bought ? 'You have made your one purchase this turn.' : 'You may make one purchase this turn: a rail from the list below' + (g.cfg.superChief > 0 && !p.sc ? ' or the Express' : '') + '.') + (p.scNew ? ' The Express bonus starts next turn.' : '') + '</div>' +
+        '<div class="row">' + (B.canBuyChief(g, p.id) ? '<button class="b" data-act="chief">Buy Express ' + money(g.cfg.superChief) + '</button> ' : '') + (B.canBonus(g) ? '<button class="b pri big" data-act="bonus">&#127922; ' + (p.sc ? 'Express' : 'Double six') + ': roll a new destination + one die</button>' : '') + '<button class="b' + (B.canBonus(g) ? '' : ' pri') + ' big" data-act="end">End turn</button></div>';
     }
     return h;
   }
@@ -329,7 +329,7 @@
   }
   function render() {
     if (!g) return;
-    const pb = $('pipbox'); if (g.phase === 'walk' && g.walk) { pb.hidden = false; pb.innerHTML = '<b>' + g.walk.rem + '</b><span>pip' + (g.walk.rem === 1 ? '' : 's') + ' left of ' + g.walk.n + (g.bonus ? ' (Super Chief die)' : '') + '</span>'; } else pb.hidden = true;
+    const pb = $('pipbox'); if (g.phase === 'walk' && g.walk) { pb.hidden = false; pb.innerHTML = '<b>' + g.walk.rem + '</b><span>pip' + (g.walk.rem === 1 ? '' : 's') + ' left of ' + g.walk.n + (g.bonus ? ' (Express die)' : '') + '</span>'; } else pb.hidden = true;
     $('round').textContent = 'Round ' + g.round;
     $('cash').innerHTML = g.players.map(p => '<div class="cc' + (p.id === g.turn && g.phase !== 'over' ? ' on' : '') + '" style="border-color:' + COLORS[p.id % COLORS.length] + '"><b>' + esc(p.name) + '</b><span class="' + (p.cash < 0 ? 'neg' : '') + '">' + money(p.cash) + '</span></div>').join('');
     $('players').innerHTML = playersHtml(); $('actions').innerHTML = actionsHtml(); $('dicebox').innerHTML = diceHtml(); $('rails').innerHTML = railsHtml(); $('log').innerHTML = logHtml(); renderTip();
@@ -410,7 +410,7 @@
     else if (a === 'clearvia') { B.clearVia(g); }
     else if (a === 'pause') { paused = !paused; }
     else if (a === 'skip') { for (let i = 0; i < 400 && g.phase !== 'over' && B.cur(g).bot; i++) B.botAct(g); }
-    else if (a === 'export') { download('baron-eurobaron-game.json', JSON.stringify(B.exportLog(g), null, 1)); return; }
+    else if (a === 'export') { download('iron-meridian-game.json', JSON.stringify(B.exportLog(g), null, 1)); return; }
     else if (a === 'new') { openSetup(); return; }
     afterAction(a === 'end' || a === 'skip');
   }
@@ -442,7 +442,7 @@
     d.innerHTML = '<h2>New game</h2><div class="presets"><button class="b" data-pre="1">You vs 1 bot</button><button class="b" data-pre="2">You vs 2 bots</button><button class="b" data-pre="3">3 people, one device</button><button class="b" data-pre="4">Watch 3 bots</button></div>' +
       '<div id="prow"></div><div class="grid"><label>Players <select id="np">' + [2, 3, 4, 5, 6].map(n => '<option' + (n === 3 ? ' selected' : '') + '>' + n + '</option>').join('') + '</select></label>' +
       '<label>Start cash ($K) <input id="cs" type="number" value="' + M.cfg.start / 1000 + '"></label><label>Win cash ($K) <input id="cw" type="number" value="' + M.cfg.win / 1000 + '"></label>' +
-      '<label>Super Chief ($K, 0 = none) <input id="cc" type="number" value="' + M.cfg.superChief / 1000 + '"></label><label>Seed (blank = random) <input id="sd" type="text" placeholder="e.g. 42"></label></div>' +
+      '<label>Express ($K, 0 = none) <input id="cc" type="number" value="' + M.cfg.superChief / 1000 + '"></label><label>Seed (blank = random) <input id="sd" type="text" placeholder="e.g. 42"></label></div>' +
       '<div class="row"><button class="b pri" id="go">Start</button> <button class="b" id="cancel">Cancel</button>' + (saved ? ' <button class="b" id="resume">Resume saved game</button>' : '') + ' <label class="ld">Load game file <input type="file" id="lf" accept=".json"></label></div>';
     const rows = () => { const n = +$('np').value, pr = $('prow'); const old = [...pr.querySelectorAll('.pr')].map(r => [r.querySelector('input').value, r.querySelector('select').value]); pr.innerHTML = ''; for (let i = 0; i < n; i++) { const o = old[i] || [NAMES[i], i === 0 ? 'human' : 'bot']; pr.insertAdjacentHTML('beforeend', '<div class="pr"><span class="dot" style="background:' + COLORS[i] + '"></span><input value="' + esc(o[0]) + '"> <select><option value="human"' + (o[1] === 'human' ? ' selected' : '') + '>person</option><option value="bot"' + (o[1] === 'bot' ? ' selected' : '') + '>bot</option></select></div>'); } };
     rows(); $('np').onchange = rows;
@@ -462,18 +462,18 @@
     d.innerHTML = '<h2>How this playtest works</h2><ul class="rules"><li><b>Goal:</b> collect ' + money(c.win) + ' (editable) at an arrival, then get back to your home city first.</li>' +
       '<li><b>Destination:</b> coloured die odd/even + two white dice pick a region, then a second roll picks the city. Roll your own region and you may choose any region.</li>' +
       '<li><b>Moving:</b> roll 2 dice of dots a turn. Dots left over at arrival are lost. Tap pips to pick your own path; where two tracks cross you may change tracks (you pay the fee of any track you ride).</li>' +
-      '<li><b>Super Chief (' + money(c.superChief) + '):</b> after an arrival you collect, buy, roll a new destination and move one more die the same turn. Fees already paid that turn are not paid again.</li>' +
-      '<li><b>Double six:</b> rolling two sixes on the movement dice gives you the Super Chief bonus for that turn (the bonus die cannot chain).</li>' +
+      '<li><b>Express (' + money(c.superChief) + '):</b> after an arrival you collect, buy, roll a new destination and move one more die the same turn. Fees already paid that turn are not paid again.</li>' +
+      '<li><b>Double six:</b> rolling two sixes on the movement dice gives you the Express bonus for that turn (the bonus die cannot chain).</li>' +
       '<li><b>Start of a game:</b> everyone rolls for turn order, then in that order for a home city; then play begins with a destination roll in that order.</li>' +
-      '<li><b>One purchase</b> per turn: a rail or the Super Chief. A Super Chief you buy starts working next turn.</li>' +
+      '<li><b>One purchase</b> per turn: a rail or the Express. An Express you buy starts working next turn.</li>' +
       '<li><b>Declare:</b> at ' + money(c.win) + ' you may declare for home instead of rolling a destination (or keep rolling if it looks risky). If another player who is not running home crosses your spot (any pip or city) on their own move, you are caught (a runner can cross anyone on their own turn without being caught): you pay them ' + money(c.catchFee) + ' and must run a new destination (paid from where you declared). Being caught is not your turn: you roll a destination on your next turn and must reach it before declaring again. You must stop on your destination when you reach it.</li>' +
       '<li><b>Payoff:</b> $1K per dot of the shortest track route from where your trip started.</li>' +
       '<li><b>Fees, once a turn:</b> ' + money(c.feePublic) + ' to the bank if you use any public rail; ' + money(c.feePrivate) + ' to each owner whose rails you use (' + money(c.feeAllSold) + ' once every rail is sold). Your own rails are free.</li>' +
-      '<li><b>Buying:</b> after each arrival you may buy rails (and the Super Chief). Owned rails glow in the owner&rsquo;s colour.</li>' +
+      '<li><b>Buying:</b> after each arrival you may buy rails (and the Express). Owned rails glow in the owner&rsquo;s colour.</li>' +
       '<li><b>Short of cash:</b> rails are sold back to the bank at half price, cheapest first.</li>' +
       '<li><b>Red squares</b> are zapper cities: only one rail serves them.</li>' +
-      '<li><b>Assumed, not from a rule book:</b> leftover dots lost on arrival, Super Chief buyable at any arrival and its extra die only after an arrival, what counts as a catch (the catcher crossing the runner's spot), forced-sale rule, bot behaviour. Tell me what to change.</li>' +
-      '<li><b>Dice by hand:</b> tick the box in the toolbar to type in your physical dice instead.</li><li><b>Export</b> at the end saves every trip as JSON for the tracker.</li></ul><div class="row"><button class="b pri" id="ok">Close</button></div>';
+      '<li><b>Assumed, not from a rule book:</b> leftover dots lost on arrival, Express buyable at any arrival and its extra die only after an arrival, what counts as a catch (the catcher crossing the runner's spot), forced-sale rule, bot behaviour. Tell me what to change.</li>' +
+      '<li><b>Dice by hand:</b> tick the box in the toolbar to type in your physical dice instead.</li><li><b>Export</b> at the end saves every trip as JSON for the tracker.</li></ul><p class="muted">Iron Meridian is an independent game inspired by classic railroad dice-and-destination games. It is not affiliated with or endorsed by any publisher. The map, tables, text and names are our own.</p><div class="row"><button class="b pri" id="ok">Close</button></div>';
     $('ok').onclick = () => d.close(); d.showModal();
   }
   $('gear').onclick = () => $('set').showModal();
@@ -482,7 +482,7 @@
   $('hsold').checked = !!prefs.hideSold;
   $('hsold').onchange = e => { prefs.hideSold = e.target.checked; savePrefs(); if (g) $('rails').innerHTML = railsHtml(); };
   document.addEventListener('toggle', e => { const d = e.target; if (d.dataset && d.dataset.grp) { prefs.shut = prefs.shut || {}; prefs.shut[d.dataset.grp] = !d.open; savePrefs(); } }, true);
-  $('bsave').onclick = () => { if (g) download('baron-save.json', JSON.stringify(g)); };
+  $('bsave').onclick = () => { if (g) download('iron-meridian-save.json', JSON.stringify(g)); };
   $('hm').checked = prefs.homes !== false; $('stp').checked = prefs.step !== false; $('tg').checked = prefs.tags !== false; $('spd').value = String(prefs.speed); $('fol').checked = prefs.follow; $('man').checked = prefs.manual;
 
   buildMap(); updateMap();
