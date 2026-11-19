@@ -149,7 +149,7 @@
       if (p.loc === p.home) { win(g, p); return true; }
       setDest(g, p.home); return true;
     }
-    /* crossing: a player who is not running home catches a declared runner by crossing the runner's spot (a pip or a city), or the runner is caught by running over someone's spot.
+    /* crossing: a player who is not running home catches a declared runner by crossing the runner's spot (a pip or a city), (a runner crossing other players on their own turn is never caught).
        pts are the spots the mover passed over this move. Both runners (or neither) running home: nothing happens. */
     const ptAt = (hopId, from, dd) => { const h = M.hops[hopId]; if (dd <= 0) { const c = P.city[from]; return [c.x, c.y]; } if (dd >= h.nd) { const c = P.city[from === h.a ? h.b : h.a]; return [c.x, c.y]; } const q = h.dotpts[(from === h.a ? dd : h.nd - dd) - 1]; return [q[0], q[1]]; };
     function caught(g, r, c) {
@@ -166,7 +166,7 @@
       g.players.forEach(o => {
         if (o.id === mover.id || !o.loc) return;
         if (!path.some(q => near(q, tokenPos(g, o)))) return;
-        if (mover.goingHome && !o.goingHome) caught(g, mover, o); else if (!mover.goingHome && o.goingHome) caught(g, o, mover);
+        if (!mover.goingHome && o.goingHome) caught(g, o, mover); // only the mover can catch: a runner may cross anyone on their own turn
       });
     }
     /* Super Chief: after an arrival, collect, buy, then roll a new destination and move one die in the same turn */
