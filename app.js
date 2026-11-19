@@ -472,7 +472,7 @@
       '<li><b>Buying:</b> after each arrival you may buy rails (and the Express). Owned rails glow in the owner&rsquo;s colour.</li>' +
       '<li><b>Short of cash:</b> rails are sold back to the bank at half price, cheapest first.</li>' +
       '<li><b>Red squares</b> are zapper cities: only one rail serves them.</li>' +
-      '<li><b>Assumed, not from a rule book:</b> leftover dots lost on arrival, Express buyable at any arrival and its extra die only after an arrival, what counts as a catch (the catcher crossing the runner's spot), forced-sale rule, bot behaviour. Tell me what to change.</li>' +
+      '<li><b>Assumed, not from a rule book:</b> leftover dots lost on arrival, Express buyable at any arrival and its extra die only after an arrival, what counts as a catch (the catcher crossing the runner&rsquo;s spot), forced-sale rule, bot behaviour. Tell me what to change.</li>' +
       '<li><b>Dice by hand:</b> tick the box in the toolbar to type in your physical dice instead.</li><li><b>Export</b> at the end saves every trip as JSON for the tracker.</li></ul><p class="muted">Iron Meridian is an independent game inspired by classic railroad dice-and-destination games. It is not affiliated with or endorsed by any publisher. The map, tables, text and names are our own.</p><div class="row"><button class="b pri" id="ok">Close</button></div>';
     $('ok').onclick = () => d.close(); d.showModal();
   }
