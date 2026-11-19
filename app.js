@@ -130,6 +130,7 @@
         if (flashId === pl.id) { const ring = el('circle', { r: 12, fill: 'none', stroke: col, 'stroke-width': 6 }, tg); ring.classList.add('ring'); }
         el('circle', { r: 12, fill: col, stroke: pl.id === g.turn ? '#000' : '#fff', 'stroke-width': pl.id === g.turn ? 3.5 : 2 }, tg);
         const t = el('text', { 'text-anchor': 'middle', y: 5, 'font-size': 14, 'font-weight': 800, fill: '#fff' }, tg); t.textContent = (pl.name[0] || '?').toUpperCase();
+        const nm = el('text', { 'text-anchor': 'middle', y: -19, 'font-size': 19, 'font-weight': 800, fill: col, stroke: '#fff', 'stroke-width': 5, 'paint-order': 'stroke', 'font-family': 'sans-serif' }, tg); nm.textContent = pl.name;
       }
       if (pl.dest) { // everyone's destination stays visible: a ring and the player's letter
         const dc = P.city[pl.dest], dn = (seen['d' + pl.dest] = (seen['d' + pl.dest] || 0) + 1);
@@ -376,7 +377,7 @@
       const trail = [start].concat(pts.slice(0, i)); if (trail.length > 1) el('polyline', { points: trail.map(q => q.join(',')).join(' '), fill: 'none', stroke: col, 'stroke-width': 10, opacity: 0.85, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, layers.anim);
       pts.slice(0, i).forEach(q => el('circle', { cx: q[0], cy: q[1], r: 4, fill: '#fff', stroke: col, 'stroke-width': 2 }, layers.anim));
       const pos = i ? pts[i - 1] : start, tg = el('g', { transform: 'translate(' + pos[0] + ',' + (pos[1] - 22) + ')' }, layers.anim);
-      el('circle', { r: 14, fill: col, stroke: '#000', 'stroke-width': 3.5 }, tg); const tx = el('text', { 'text-anchor': 'middle', y: 5, 'font-size': 15, 'font-weight': 800, fill: '#fff' }, tg); tx.textContent = (snap.name[0] || '?').toUpperCase();
+      el('circle', { r: 14, fill: col, stroke: '#000', 'stroke-width': 3.5 }, tg); const tx = el('text', { 'text-anchor': 'middle', y: 5, 'font-size': 15, 'font-weight': 800, fill: '#fff' }, tg); tx.textContent = (snap.name[0] || '?').toUpperCase(); const nm2 = el('text', { 'text-anchor': 'middle', y: -21, 'font-size': 21, 'font-weight': 800, fill: col, stroke: '#fff', 'stroke-width': 5, 'paint-order': 'stroke', 'font-family': 'sans-serif' }, tg); nm2.textContent = snap.name;
       const left = mv.rolled - i; pb.innerHTML = '<span>' + esc(snap.name) + ' rolled ' + dice + ' = ' + mv.rolled + (g.dbl6 && !g.bonus ? ' DOUBLE SIX' : '') + '</span><b>' + left + '</b><span>pip' + (left === 1 ? '' : 's') + ' left' + (i === pts.length && left > 0 ? ' (lost on arrival)' : '') + '</span>';
     };
     const finish = () => { anim = null; animHide = -1; layers.anim.innerHTML = ''; afterAction(); };

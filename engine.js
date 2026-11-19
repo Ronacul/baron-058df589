@@ -145,19 +145,28 @@
     function skipDeclare(g) { if (g.phase !== 'dest' || g.stage !== 'declare') return false; g.stage = 'region'; log(g, cur(g).name + ' has ' + money(cur(g).cash) + ' but keeps playing: rolling a destination instead of declaring.', g.turn); return true; }
     function declareHome(g) {
       const p = cur(g); if (g.phase !== 'dest' || g.stage !== 'declare') return false;
-      p.goingHome = true; p.declaredFrom = p.loc; log(g, p.name + ' has ' + money(p.cash) + ' and declares: heading home to ' + p.home + '! Anyone ending a move in the same city as ' + p.name + ' catches them (' + money(C.catchFee) + ').', p.id);
+      p.goingHome = true; p.declaredFrom = p.loc; log(g, p.name + ' has ' + money(p.cash) + ' and declares: heading home to ' + p.home + '! Anyone who crosses ' + p.name + ' (any pip or city) catches them (' + money(C.catchFee) + ').', p.id);
       if (p.loc === p.home) { win(g, p); return true; }
       setDest(g, p.home); return true;
     }
-    /* a declared runner who shares a city with a player who is not running home is caught: pays the catcher, then must run a new destination */
-    function checkCatch(g) {
-      g.players.forEach(r => {
-        if (!r.goingHome || g.phase === 'over' || (r.path.length && r.dd > 0)) return;
-        const c = g.players.find(q => q.id !== r.id && !q.goingHome && !(q.path.length && q.dd > 0) && q.loc === r.loc); if (!c) return;
-        r.cash -= C.catchFee; c.cash += C.catchFee; r.paid += C.catchFee; c.received += C.catchFee;
-        r.goingHome = false; r.mustRun = true; r.payFrom = r.declaredFrom || r.loc; r.dest = null; r.origin = null; r.path = []; r.h = 0; r.dd = 0; r.via = [];
-        log(g, c.name + ' catches ' + r.name + ' in ' + r.loc + '! ' + r.name + ' pays ' + money(C.catchFee) + ', must roll a new destination and is paid from ' + r.payFrom + '.', c.id);
-        settle(g, r);
+    /* crossing: a player who is not running home catches a declared runner by crossing the runner's spot (a pip or a city), or the runner is caught by running over someone's spot.
+       pts are the spots the mover passed over this move. Both runners (or neither) running home: nothing happens. */
+    const ptAt = (hopId, from, dd) => { const h = M.hops[hopId]; if (dd <= 0) { const c = P.city[from]; return [c.x, c.y]; } if (dd >= h.nd) { const c = P.city[from === h.a ? h.b : h.a]; return [c.x, c.y]; } const q = h.dotpts[(from === h.a ? dd : h.nd - dd) - 1]; return [q[0], q[1]]; };
+    function caught(g, r, c) {
+      r.cash -= C.catchFee; c.cash += C.catchFee; r.paid += C.catchFee; c.received += C.catchFee;
+      const mid = r.path.length && r.dd > 0 && r.h < r.path.length;
+      r.goingHome = false; r.mustRun = true; r.payFrom = r.declaredFrom || r.loc; r.dest = null; r.origin = null; r.via = [];
+      if (mid) { r.path = [r.path[r.h]]; r.h = 0; } else { r.path = []; r.h = 0; r.dd = 0; }
+      log(g, c.name + ' catches ' + r.name + '! ' + r.name + ' pays ' + money(C.catchFee) + ', must roll a new destination (and reach it before declaring again), paid from ' + r.payFrom + '.', c.id);
+      settle(g, r);
+    }
+    function checkCatch(g, mover, pts) {
+      if (g.phase === 'over') return;
+      const path = (pts || []).concat([tokenPos(g, mover)]), near = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 5;
+      g.players.forEach(o => {
+        if (o.id === mover.id || !o.loc) return;
+        if (!path.some(q => near(q, tokenPos(g, o)))) return;
+        if (mover.goingHome && !o.goingHome) caught(g, mover, o); else if (!mover.goingHome && o.goingHome) caught(g, o, mover);
       });
     }
     /* Super Chief: after an arrival, collect, buy, then roll a new destination and move one die in the same turn */
@@ -272,7 +281,7 @@
       return move(g, sum);
     }
     function move(g, n) {
-      const p = cur(g), notes = []; let rem = n, used = 0; if (!g.bonus) g.turnPaid = {}; p.turns++;
+      const p = cur(g), notes = [], pts = []; let rem = n, used = 0; if (!g.bonus) g.turnPaid = {}; p.turns++;
       while (rem > 0 && p.h < p.path.length) {
         const st = p.path[p.h], hop = M.hops[st.hop], take = Math.min(rem, st.dots - p.dd);
         const f = feeFor(g, p.id, hop.rails, g.turnPaid);
@@ -285,13 +294,14 @@
             notes.push('paid ' + money(f.amount) + ' to ' + o.name + ' (' + f.rail + ')');
           }
         }
+        for (let k = 1; k <= take; k++) pts.push(ptAt(st.hop, st.from, p.dd + k));
         p.dd += take; rem -= take; used += take;
         if (p.dd >= st.dots) { p.h++; p.dd = 0; p.loc = st.to; }
       }
       const arrived = p.h >= p.path.length;
       g.lastMove = { moved: used, rolled: n, notes, arrived };
       log(g, p.name + ' rolled ' + n + ' and moved ' + used + ' dot' + (used === 1 ? '' : 's') + (notes.length ? ': ' + notes.join('; ') : '; no fees') + '.', p.id);
-      settle(g, p); if (!(arrived && p.goingHome && p.dest === p.home)) checkCatch(g);
+      settle(g, p); if (!(arrived && p.goingHome && p.dest === p.home)) checkCatch(g, p, pts);
       if (arrived) arrive(g, p); else endTurn(g);
       return g.lastMove;
     }
@@ -392,7 +402,7 @@
       if (!arrived) { p.path = pathFor(g, p, g.routeMode || 'balanced'); p.h = 0; }
       g.lastMove = { moved: used, rolled: w.n, notes, arrived, segs: w.segs.map(s => Object.assign({}, s)) };
       log(g, p.name + ' moved ' + used + ' dot' + (used === 1 ? '' : 's') + ' of ' + w.n + (notes.length ? ': ' + notes.join('; ') : '; no fees') + '.', p.id);
-      settle(g, p); if (!(arrived && p.goingHome && p.dest === p.home)) checkCatch(g);
+      settle(g, p); if (!(arrived && p.goingHome && p.dest === p.home)) checkCatch(g, p, w.segs.reduce((a, s) => { for (let d = s.start + 1; d <= s.start + s.take; d++) a.push(ptAt(s.hop, s.from, d)); return a; }, []));
       if (arrived) arrive(g, p); else endTurn(g);
       return true;
     }
@@ -463,8 +473,8 @@
       if (p.goingHome) return false;
       const R = g.players.find(q => q.id !== p.id && q.goingHome && !(q.path.length && q.dd > 0) && q.loc !== p.loc); if (!R) return false;
       const w0 = units(p.loc, R.loc); if (p.dd > 0 || w0 > 12 || w0 < 1) return false;
-      const w = rollMoveStep(g); if (w.n !== w0) { autoWalk(g); commitWalk(g); return true; }
-      for (let k = 0; k < 60 && !w.done; k++) {
+      const w = rollMoveStep(g); if (w.n < w0) { autoWalk(g); commitWalk(g); return true; }
+      for (let k = 0; k < 60 && !w.done && !(w.at === 'city' && w.city === R.loc); k++) {
         const opts = stepOptions(g); if (!opts.length) break;
         let hopId, to; if (w.at === 'hop') { hopId = w.hop; to = w.to; } else { const r = route(g, p.id, w.city, R.loc, 'fast'); if (!r.length) break; hopId = r[0].hop; to = r[0].to; }
         let bi = -1; opts.forEach((o, i) => { if (o.hop === hopId && o.to === to && o.jstart === undefined && (bi < 0 || o.dd > opts[bi].dd)) bi = i; });
