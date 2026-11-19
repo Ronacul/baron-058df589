@@ -134,7 +134,7 @@
       }
     }
     function startTurn(g) {
-      const p = cur(g); g.turnPaid = {}; g.bonus = false; g.dbl6 = false; g.dice = null; g.destRolls = null; g.moveNote = null; g.lastMove = null; g.walk = null;
+      const p = cur(g); g.turnPaid = {}; g.bonus = false; g.dbl6 = false; g.bought = false; p.scNew = false; g.dice = null; g.destRolls = null; g.moveNote = null; g.lastMove = null; g.walk = null;
       if (p.goingHome && p.loc === p.home) { win(g, p); return; }
       if (p.dest) { g.phase = 'route'; } else beginDest(g);
     }
@@ -142,6 +142,7 @@
       const p = cur(g); g.phase = 'dest'; g.region = null; g.needPick = false; g.destRolls = null;
       g.stage = (p.cash >= g.cfg.win && !p.mustRun && !p.goingHome) ? 'declare' : 'region';
     }
+    function skipDeclare(g) { if (g.phase !== 'dest' || g.stage !== 'declare') return false; g.stage = 'region'; log(g, cur(g).name + ' has ' + money(cur(g).cash) + ' but keeps playing: rolling a destination instead of declaring.', g.turn); return true; }
     function declareHome(g) {
       const p = cur(g); if (g.phase !== 'dest' || g.stage !== 'declare') return false;
       p.goingHome = true; p.declaredFrom = p.loc; log(g, p.name + ' has ' + money(p.cash) + ' and declares: heading home to ' + p.home + '! Anyone ending a move in the same city as ' + p.name + ' catches them (' + money(C.catchFee) + ').', p.id);
@@ -160,7 +161,7 @@
       });
     }
     /* Super Chief: after an arrival, collect, buy, then roll a new destination and move one die in the same turn */
-    function canBonus(g) { const p = cur(g); return g.phase === 'buy' && (p.sc || g.dbl6) && !g.bonus; }
+    function canBonus(g) { const p = cur(g); return g.phase === 'buy' && ((p.sc && !p.scNew) || g.dbl6) && !g.bonus; }
     function startBonus(g) {
       if (!canBonus(g)) return false;
       g.bonus = true; log(g, cur(g).name + (cur(g).sc ? ' uses the Super Chief' : ' uses the double six') + ': a new destination and one more die this turn.', g.turn); beginDest(g); return true;
@@ -389,7 +390,7 @@
       else { p.loc = w.from; p.path = [{ hop: w.hop, from: w.from, to: w.to, dots: M.hops[w.hop].nd }]; p.h = 0; p.dd = w.dd; }
       g.walk = null; g.phase = 'route';
       if (!arrived) { p.path = pathFor(g, p, g.routeMode || 'balanced'); p.h = 0; }
-      g.lastMove = { moved: used, rolled: w.n, notes, arrived };
+      g.lastMove = { moved: used, rolled: w.n, notes, arrived, segs: w.segs.map(s => Object.assign({}, s)) };
       log(g, p.name + ' moved ' + used + ' dot' + (used === 1 ? '' : 's') + ' of ' + w.n + (notes.length ? ': ' + notes.join('; ') : '; no fees') + '.', p.id);
       settle(g, p); if (!(arrived && p.goingHome && p.dest === p.home)) checkCatch(g);
       if (arrived) arrive(g, p); else endTurn(g);
@@ -414,17 +415,17 @@
     }
 
     /* ---------- buying ---------- */
-    function canBuy(g, pi, code) { const r = P.rail[code]; return g.phase === 'buy' && g.owner[code] === undefined && g.players[pi].cash >= r.price * M.unit; }
+    function canBuy(g, pi, code) { const r = P.rail[code]; return g.phase === 'buy' && !g.bought && g.owner[code] === undefined && g.players[pi].cash >= r.price * M.unit; }
     function buyRail(g, pi, code) {
       if (!canBuy(g, pi, code)) return false;
-      const p = g.players[pi], r = P.rail[code]; p.cash -= r.price * M.unit; g.owner[code] = pi;
+      const p = g.players[pi], r = P.rail[code]; p.cash -= r.price * M.unit; g.owner[code] = pi; g.bought = true;
       log(g, p.name + ' buys ' + r.code + ' (' + r.name + ') for ' + money(r.price * M.unit) + '.', pi);
       return true;
     }
-    function canBuyChief(g, pi) { const p = g.players[pi]; return g.phase === 'buy' && !p.sc && g.cfg.superChief > 0 && p.cash >= g.cfg.superChief; }
+    function canBuyChief(g, pi) { const p = g.players[pi]; return g.phase === 'buy' && !g.bought && !p.sc && g.cfg.superChief > 0 && p.cash >= g.cfg.superChief; }
     function buyChief(g, pi) {
       if (!canBuyChief(g, pi)) return false;
-      const p = g.players[pi]; p.cash -= g.cfg.superChief; p.sc = true; log(g, p.name + ' buys the Super Chief for ' + money(g.cfg.superChief) + ' (3 dice a turn).', pi); return true;
+      const p = g.players[pi]; p.cash -= g.cfg.superChief; p.sc = true; p.scNew = true; g.bought = true; log(g, p.name + ' buys the Super Chief for ' + money(g.cfg.superChief) + ' (its bonus starts next turn).', pi); return true;
     }
     function endTurn(g) {
       if (g.phase === 'over') return;
@@ -446,15 +447,31 @@
       return best;
     }
     function botBuy(g, p) {
-      if (!p.sc && g.cfg.superChief > 0 && p.cash >= g.cfg.superChief + 0.5 * C.meanPay) buyChief(g, p.id);
+      if (g.bought) return;
+      if (!p.sc && g.cfg.superChief > 0 && p.cash >= g.cfg.superChief + 0.5 * C.meanPay) { buyChief(g, p.id); return; }
       for (let guard = 0; guard < 40; guard++) {
         if (p.cash >= g.cfg.win) return;
         const open = M.rails.filter(r => g.owner[r.code] === undefined); if (!open.length) return;
         const gmax = Math.max.apply(null, open.map(railScore));
         let best = null, bs = -1;
         open.forEach(r => { if (r.price * M.unit > p.cash - C.meanPay) return; const sc = railScore(r); if (sc < THR * gmax) return; if (sc > bs) { bs = sc; best = r; } });
-        if (!best) return; buyRail(g, p.id, best.code);
+        if (!best) return; buyRail(g, p.id, best.code); return;
       }
+    }
+    /* a runner declared for home and sits in a city: if the roll lands exactly on it, go there and collect the catch fee */
+    function botChase(g, p) {
+      if (p.goingHome) return false;
+      const R = g.players.find(q => q.id !== p.id && q.goingHome && !(q.path.length && q.dd > 0) && q.loc !== p.loc); if (!R) return false;
+      const w0 = units(p.loc, R.loc); if (p.dd > 0 || w0 > 12 || w0 < 1) return false;
+      const w = rollMoveStep(g); if (w.n !== w0) { autoWalk(g); commitWalk(g); return true; }
+      for (let k = 0; k < 60 && !w.done; k++) {
+        const opts = stepOptions(g); if (!opts.length) break;
+        let hopId, to; if (w.at === 'hop') { hopId = w.hop; to = w.to; } else { const r = route(g, p.id, w.city, R.loc, 'fast'); if (!r.length) break; hopId = r[0].hop; to = r[0].to; }
+        let bi = -1; opts.forEach((o, i) => { if (o.hop === hopId && o.to === to && o.jstart === undefined && (bi < 0 || o.dd > opts[bi].dd)) bi = i; });
+        if (bi < 0 || !stepWalk(g, bi)) break;
+      }
+      if (!w.done) autoWalk(g);
+      commitWalk(g); return true;
     }
     /* one bot action per call, so the page can show each step */
     function botAct(g) {
@@ -462,12 +479,12 @@
       if (g.phase === 'order') { rollOrder(g); return 'rolls for turn order'; }
       if (g.phase === 'home') { rollHomeStep(g); return 'rolls for a home city'; }
       if (g.phase === 'dest') {
-        if (g.stage === 'declare') { declareHome(g); return 'declares for home'; }
+        if (g.stage === 'declare') { if (units(p.loc, p.home) <= 16 || p.loc === p.home) { declareHome(g); return 'declares for home'; } skipDeclare(g); return 'keeps rolling destinations'; }
         if (g.stage === 'region') { rollRegion(g); return 'rolls the destination'; }
         if (g.stage === 'pick') { pickRegion(g, botPickRegion(g, p)); return 'chooses a region'; }
         if (g.stage === 'city') { rollCity(g); return 'rolls the city'; }
       }
-      if (g.phase === 'route') { rollMove(g); return 'moves'; }
+      if (g.phase === 'route') { if (botChase(g, p)) return 'chases the runner'; rollMove(g); return 'moves'; }
       if (g.phase === 'buy') { botBuy(g, p); if (canBonus(g)) { startBonus(g); return 'uses the Super Chief'; } endTurn(g); return 'ends the turn'; }
       return null;
     }
@@ -493,7 +510,7 @@
         players: stats(g), trips: g.trips.map(t => ({ player: g.players[t.p].name, from: t.from, to: t.to, pays: t.pays, round: t.round })), owners: g.owner };
     }
 
-    return { M, P, newGame, rollRegion, pickRegion, rollCity, setDest, setRoute, toggleVia, clearVia, route, routeInfo, rollOrder, rollHomeStep, declareHome, startBonus, canBonus, rollMove, rollMoveStep, stepOptions, stepWalk, undoWalk, autoWalk, commitWalk, walkFees, suggestedStep, optPos, move, buyRail, buyChief, canBuy, canBuyChief, endTurn, botAct, stats, tokenPos, exportLog,
+    return { M, P, newGame, rollRegion, pickRegion, rollCity, setDest, setRoute, toggleVia, clearVia, route, routeInfo, rollOrder, rollHomeStep, skipDeclare, declareHome, startBonus, canBonus, rollMove, rollMoveStep, stepOptions, stepWalk, undoWalk, autoWalk, commitWalk, walkFees, suggestedStep, optPos, move, buyRail, buyChief, canBuy, canBuyChief, endTurn, botAct, stats, tokenPos, exportLog,
       payoff, units, money, cur, allSold, regionOf, railScore, feeFor };
   }
 
