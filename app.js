@@ -818,7 +818,13 @@
     try { localStorage.setItem(seatKey(id), JSON.stringify({ seat, token, name })); localStorage.setItem('baron.lastroom', id); } catch (e) { /* none */ }
     g = B.newGame({ players: settings.players.map(p => ({ name: p.name, bot: !!p.bot })), start: settings.start, win: settings.win, superChief: settings.superChief, seed: settings.seed });
     ACTLOG.length = 0; paused = false; routeMode = 'balanced'; const dl = $('dlg'); if (dl.open) dl.close(); afterAction(); roomBar();
-    clearInterval(ONLINE.timer); ONLINE.timer = setInterval(poll, 900); poll();
+    clearTimeout(ONLINE.timer); ONLINE.timer = setTimeout(pollLoop, 900); poll();
+  }
+  /* polling pace: brisk while waiting for someone else, slower on your own turn (your own moves trigger an immediate poll), slowest when the tab is hidden: keeps the request count low on a hosted relay */
+  function pollLoop() {
+    if (!ONLINE.on) return; poll();
+    const mineNow = g && g.phase !== 'over' && ONLINE.seat >= 0 && B.cur(g).id === ONLINE.seat;
+    ONLINE.timer = setTimeout(pollLoop, document.hidden ? 6000 : (mineNow ? 3000 : 1000));
   }
   async function poll() {
     if (!ONLINE.on || ONLINE.busy) return; ONLINE.busy = true;
