@@ -12,9 +12,10 @@
   const $ = id => document.getElementById(id);
   const esc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const FACE = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
-  let g = null, prefs = { speed: 650, follow: false, manual: false, dice: 'digital', screen: 'pass', tags: true, homes: true, step: true, cards: false, tight: false }, botTimer = null, paused = false, routeMode = 'balanced', hi = null, flashId = -1, flashIds = [], animHide = -1, anim = null, tip = null, lastKey = '', introUntil = 0;
+  let g = null, prefs = { speed: 650, follow: false, manual: false, dice: 'digital', screen: 'pass', diceSpeed: 0.65, tags: true, homes: true, step: true, cards: false, tight: false }, botTimer = null, paused = false, routeMode = 'balanced', hi = null, flashId = -1, flashIds = [], animHide = -1, anim = null, tip = null, lastKey = '', introUntil = 0;
   try { Object.assign(prefs, JSON.parse(localStorage.getItem(PREF) || '{}')); } catch (e) { /* no storage */ }
   COLORS = PALETTES[prefs.palette] || PALETTES.classic;
+  if (window.Dice3D) window.Dice3D.speed = prefs.diceSpeed || 0.65;
   if (prefs.manual && prefs.dice !== 'real') prefs.dice = 'real'; prefs.manual = prefs.dice === 'real'; // older saved settings
   const savePrefs = () => { try { localStorage.setItem(PREF, JSON.stringify(prefs)); } catch (e) { /* ignore */ } };
 
@@ -538,7 +539,14 @@
     $('round').textContent = 'Round ' + g.round;
     $('cash').innerHTML = g.players.map(p => '<div class="cc' + (p.id === g.turn && g.phase !== 'over' ? ' on' : '') + '" style="border-color:' + COLORS[p.id % COLORS.length] + '"><b>' + esc(p.name) + '</b><span class="' + (p.cash < 0 ? 'neg' : '') + '">' + money(p.cash) + '</span></div>').join('');
     $('players').innerHTML = playersHtml(); $('actions').innerHTML = actionsHtml(); $('dicebox').innerHTML = diceHtml(); $('rails').innerHTML = railsHtml(); $('log').innerHTML = logHtml(); renderTip();
-    updateMap(); autosave(); cashFloats(); turnBanner();
+    updateMap(); autosave(); cashFloats(); turnBanner(); quickRoll();
+  }
+  /* a Roll button in the map's top-right corner (by the zoom buttons) so a phone never has to scroll down to the panel */
+  function quickRoll() {
+    const q = $('qroll'); if (!q) return;
+    const b = g && !anim && g.phase !== 'over' ? document.querySelector('#actions button[data-act^="roll"]:not([disabled]), #actions button[data-act="bonus"]:not([disabled])') : null;
+    q.hidden = !b;
+    if (b) q.onclick = () => { const x = document.querySelector('#actions button[data-act^="roll"]:not([disabled]), #actions button[data-act="bonus"]:not([disabled])'); if (x) x.click(); };
   }
   function autosave() { if (ONLINE.on) return; try { if (g.phase === 'over') localStorage.removeItem(SAVE); else localStorage.setItem(SAVE, JSON.stringify(g)); } catch (e) { /* storage full or blocked */ } }
 
@@ -604,9 +612,9 @@
   function lucanored(k) {
     const w = $('mapwrap'), col = COLORS[k.buyerId % COLORS.length], b = document.createElement('div'); b.className = 'luc';
     b.innerHTML = '<div class="lu1">LUCANORED!</div><div class="lu2"><b style="color:' + col + '">' + esc(k.buyer) + '</b> bought <b>' + esc(k.rail) + '</b><br>' + k.victims.map(v => '<b style="color:' + COLORS[v.id % COLORS.length] + '">' + esc(v.name) + '</b> now pays to reach <b>' + esc(v.dest) + '</b>').join('<br>') + '</div>';
-    w.appendChild(b); b.onclick = () => b.remove(); setTimeout(() => b.remove(), 5200);
+    w.appendChild(b); b.onclick = () => b.remove(); setTimeout(() => b.remove(), 5600);
     const em = ['😈', '💸', '😜', '💰'];
-    for (let i = 0; i < 36; i++) { const e = document.createElement('i'); e.className = 'em'; e.textContent = em[i % em.length]; e.style.left = (Math.random() * 100) + '%'; e.style.animationDelay = (Math.random() * 0.8) + 's'; e.style.setProperty('--dx', (Math.random() * 160 - 80) + 'px'); w.appendChild(e); setTimeout(() => e.remove(), 4200); }
+    for (let i = 0; i < 10; i++) { const e = document.createElement('i'); e.className = 'em'; e.textContent = em[i % em.length]; e.style.left = (Math.random() * 100) + '%'; e.style.animationDelay = (Math.random() * 0.8) + 's'; e.style.setProperty('--dx', (Math.random() * 160 - 80) + 'px'); w.appendChild(e); setTimeout(() => e.remove(), 4200); }
     hi = k.rail; flashIds = k.victims.map(v => v.id); updateMap(); if ($('rails')) $('rails').innerHTML = railsHtml();
     const grp = layers.fx; grp.innerHTML = ''; const fg = el('g', { class: 'fxf' }, grp);
     k.victims.forEach(v => { const c = P.city[v.dest]; if (!c) return; el('circle', { cx: c.x, cy: c.y, r: 80, fill: '#fff' }, fg); el('circle', { cx: c.x, cy: c.y, r: 70, fill: COLORS[v.id % COLORS.length] }, fg); });
@@ -665,7 +673,8 @@
       const it = items[i++]; ov.hidden = false; $('rt1').textContent = it.title; $('rt2').textContent = ' '; box.innerHTML = '';
       if (window.Dice3D) window.Dice3D.sync(box, it.vals, { anim: it.vals.map(() => !still), mode: still ? 'off' : (quick ? 'quick' : 'full') });
       [].forEach.call(box.children, (d, k) => { const red = it.red && k === 0; d.style.setProperty('--die', red ? '#c0392b' : '#fffaf0'); d.style.setProperty('--pip', red ? '#fff' : '#25221c'); });
-      tm = setTimeout(() => { $('rt2').textContent = it.text; if (it.six) celebrateSix(it.six === 'big'); tm = setTimeout(next, still ? 1500 : (quick ? 700 : 1300)); }, still ? 300 : (quick ? 800 : 3000));
+      const sp = (window.Dice3D && window.Dice3D.speed) || 1;
+      tm = setTimeout(() => { $('rt2').textContent = it.text; if (it.six) celebrateSix(it.six === 'big'); if (it.land) it.land(); tm = setTimeout(next, still ? 1300 : (quick ? 700 : Math.round(1300 * Math.max(0.6, sp)))); }, still ? 300 : (quick ? 800 : Math.round(3000 * sp)));
     };
     ov.onclick = next; next();
   }
@@ -707,8 +716,9 @@
   }
   function playFx(kind, who, id, quick, still) {
     const items = (quick && prefs.speed <= 120) ? [] : fxItems(kind, who); anim = { fx: 1 };
-    const finish = () => { anim = null; flashFor(kind, id); afterAction(); if (kind === 'region' && g.stage === 'pick' && !B.cur(g).bot) setTimeout(openPickPopup, prefs.speed <= 120 ? 300 : 1900); };
+    const finish = () => { anim = null; if (!items.length) flashFor(kind, id); afterAction(); if (kind === 'region' && g.stage === 'pick' && !B.cur(g).bot) setTimeout(openPickPopup, prefs.speed <= 120 ? 300 : 1300); };
     if (!items.length) { finish(); return; }
+    if (kind === 'region' || kind === 'city' || kind === 'home') items[items.length - 1].land = () => flashFor(kind, id);
     rollFx(items, finish, quick, still);
   }
   function scheduleBot() {
@@ -865,6 +875,7 @@
     if (e.target.id === 'spd') { prefs.speed = +e.target.value; savePrefs(); }
     if (e.target.id === 'fol') { prefs.follow = e.target.checked; savePrefs(); }
     if (e.target.id === 'dsel') { prefs.dice = e.target.value; prefs.manual = prefs.dice === 'real'; savePrefs(); pad = {}; padKind = ''; render(); }
+    if (e.target.id === 'dspd') { prefs.diceSpeed = +e.target.value; if (window.Dice3D) window.Dice3D.speed = prefs.diceSpeed; savePrefs(); }
     if (e.target.id === 'ssel') { prefs.screen = e.target.value; savePrefs(); applyModes(); render(); }
   });
   $('zin').onclick = () => zoomAt(1 / 1.3, vb.x + vb.w / 2, vb.y + vb.h / 2);
@@ -935,7 +946,7 @@
   $('hsold').onchange = e => { prefs.hideSold = e.target.checked; savePrefs(); if (g) $('rails').innerHTML = railsHtml(); };
   document.addEventListener('toggle', e => { const d = e.target; if (d.dataset && d.dataset.grp) { prefs.shut = prefs.shut || {}; prefs.shut[d.dataset.grp] = !d.open; savePrefs(); } }, true);
   $('bsave').onclick = () => { if (g) download('iron-meridian-save.json', JSON.stringify(g)); };
-  $('hm').checked = prefs.homes !== false; $('stp').checked = prefs.step !== false; $('tg').checked = prefs.tags !== false; $('crd').checked = !!prefs.cards; $('trl').checked = prefs.trails !== false; $('pln').checked = prefs.plain !== false; $('pal').value = prefs.palette || 'classic'; $('thk').checked = !!prefs.thick; $('tgt').checked = !!prefs.tight; $('spd').value = String(prefs.speed); $('fol').checked = prefs.follow; $('dsel').value = prefs.dice || 'digital'; $('ssel').value = prefs.screen || 'pass'; applyModes();
+  $('hm').checked = prefs.homes !== false; $('stp').checked = prefs.step !== false; $('tg').checked = prefs.tags !== false; $('crd').checked = !!prefs.cards; $('trl').checked = prefs.trails !== false; $('pln').checked = prefs.plain !== false; $('pal').value = prefs.palette || 'classic'; $('thk').checked = !!prefs.thick; $('tgt').checked = !!prefs.tight; $('spd').value = String(prefs.speed); $('fol').checked = prefs.follow; $('dsel').value = prefs.dice || 'digital'; $('dspd').value = String(prefs.diceSpeed || 0.65); $('ssel').value = prefs.screen || 'pass'; applyModes();
 
   buildMap(); drawEra(); if (prefs.tight || prefs.cards) applyTight(); updateMap();
   window.baronDebug = { B, ERA, ONLINE, startOnline, openJoin, processQueue, RELAY, ACTLOG, dispatch, runEntry, declareBanner, winCelebration, drawEra, drawTrain, el, laneOrders, celebrateSix, toast, floatMoney, flyMoney, lucanored, get g() { return g; }, set g(v) { g = v; }, render, afterAction, handleMapClick, selectRail, closeTip, turnIntro };

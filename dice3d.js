@@ -82,7 +82,8 @@
     const sx = st.x, sy = st.y;
     const tx = ahead(st.x, bx, spins), ty = ahead(st.y, by, quick ? 0 : spins - 1 + (Math.random() * 2 | 0));
     // full: every die lands at its own time, so they finish in no particular order; the "angst" dice take far longer
-    const dur = quick ? 520 : angst ? 1900 + Math.random() * 900 : 950 + Math.random() * 700, dl = quick ? i * 28 : Math.random() * 130;
+    const sp = (root.Dice3D && root.Dice3D.speed) || 1; // 1 = the relaxed original, smaller = brisker
+    const dur = (quick ? 520 : angst ? 1900 + Math.random() * 900 : 950 + Math.random() * 700) * sp, dl = (quick ? i * 28 : Math.random() * 130) * sp;
     el.classList.remove('blank', 'land', 'air'); void el.offsetWidth;
     el.style.setProperty('--hop', Math.round(dur * (quick ? 1 : 0.42)) + 'ms'); el.style.setProperty('--dl', dl + 'ms'); el.classList.add('air');
     const f = (x, y) => `rotateX(${x}deg) rotateY(${y}deg)`;
@@ -128,5 +129,5 @@
       else if (!v && el._st.v) place(el, 0);
     });
   }
-  root.Dice3D = { sync, audio: null, SHOW, resize: setSize };
+  root.Dice3D = { sync, audio: null, SHOW, resize: setSize, speed: 1 };
 })(globalThis);
