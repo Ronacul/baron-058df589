@@ -423,10 +423,11 @@
     return out.filter(Boolean);
   }
   let fxTimer = 0;
-  function flashRegion(name) {
+  function flashRegion(name, cityName, col) {
     const i = M.regions.findIndex(r => r.name === name); if (i < 0) return;
     layers.fx.innerHTML = ''; const grp = el('g', { fill: M.regions[i].line, class: 'fxf' }, layers.fx);
     M.land.filter(l => l.r === i).forEach(l => el('path', { d: l.d }, grp));
+    const cc = cityName && P.city[cityName]; if (cc) { el('circle', { cx: cc.x, cy: cc.y, r: 74, fill: '#fff' }, grp); el('circle', { cx: cc.x, cy: cc.y, r: 64, fill: col || '#222' }, grp); }
     clearTimeout(fxTimer); fxTimer = setTimeout(() => { layers.fx.innerHTML = ''; }, 3200); introUntil = performance.now() + (prefs.speed <= 120 ? 0 : 2600);
   }
   function flashCity(name, col) {
@@ -436,13 +437,20 @@
   }
   function flashFor(kind, id) {
     const col = COLORS[id % COLORS.length];
-    if (kind === 'region' && g.destRolls && g.destRolls.region) flashRegion(g.destRolls.region.region);
+    if (kind === 'region' && g.destRolls && g.destRolls.region) { const p = g.players[id]; if (g.stage === 'pick' && p) flashRegion(g.destRolls.region.region, p.loc, col); else flashRegion(g.destRolls.region.region); } // your own region: the region and the city you are in
     else if (kind === 'city') { const p = g.players[id]; if (p && p.dest) flashCity(p.dest, col); }
     else if (kind === 'home' && g.lastHome) flashCity(g.lastHome.home, col);
   }
+  /* you rolled the region you are already in: a popup to choose a new region */
+  function openPickPopup() {
+    if (!g || g.stage !== 'pick' || B.cur(g).bot || anim) return; const d = $('dlg'), p = B.cur(g);
+    d.innerHTML = '<h2>You rolled your own region</h2><p>You are in <b>' + esc(p.loc) + '</b> (' + esc(B.regionOf(p.loc)) + '). Choose any other region for your destination:</p><div class="chips">' + M.regions.filter(r => r.name !== B.regionOf(p.loc)).map(r => '<button class="b chip" style="border-color:' + r.line + '" data-r="' + esc(r.name) + '">' + esc(r.name) + '</button>').join('') + '</div>';
+    d.querySelectorAll('[data-r]').forEach(b => { b.onclick = () => { const name = b.dataset.r; d.close(); B.pickRegion(g, name); flashRegion(name); afterAction(); }; });
+    d.showModal();
+  }
   function playFx(kind, who, id, quick) {
     const items = (prefs.manual || (quick && prefs.speed <= 120)) ? [] : fxItems(kind, who); anim = { fx: 1 };
-    const finish = () => { anim = null; flashFor(kind, id); afterAction(); };
+    const finish = () => { anim = null; flashFor(kind, id); afterAction(); if (kind === 'region' && g.stage === 'pick' && !B.cur(g).bot) setTimeout(openPickPopup, prefs.speed <= 120 ? 300 : 1900); };
     if (!items.length) { finish(); return; }
     rollFx(items, finish, quick);
   }
