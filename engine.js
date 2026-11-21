@@ -286,7 +286,7 @@
       return move(g, sum);
     }
     function move(g, n) {
-      const p = cur(g), notes = [], pts = []; let rem = n, used = 0; if (!g.bonus) g.turnPaid = {}; p.turns++;
+      const p = cur(g), notes = [], pts = [], trail = []; let rem = n, used = 0; if (!g.bonus) g.turnPaid = {}; p.turns++;
       while (rem > 0 && p.h < p.path.length) {
         const st = p.path[p.h], hop = M.hops[st.hop], take = Math.min(rem, st.dots - p.dd);
         const f = feeFor(g, p.id, hop.rails, g.turnPaid);
@@ -300,10 +300,11 @@
           }
         }
         for (let k = 1; k <= take; k++) pts.push(ptAt(st.hop, st.from, p.dd + k));
+        trail.push({ hop: st.hop, from: st.from, to: st.to, start: p.dd, take });
         p.dd += take; rem -= take; used += take;
         if (p.dd >= st.dots) { p.h++; p.dd = 0; p.loc = st.to; }
       }
-      const arrived = p.h >= p.path.length;
+      const arrived = p.h >= p.path.length; g.trails = g.trails || {}; g.trails[p.id] = trail; g.lastMover = p.id;
       g.lastMove = { moved: used, rolled: n, notes, arrived };
       log(g, p.name + ' rolled ' + n + ' and moved ' + used + ' dot' + (used === 1 ? '' : 's') + (notes.length ? ': ' + notes.join('; ') : '; no fees') + '.', p.id);
       settle(g, p); if (!(arrived && p.goingHome && p.dest === p.home)) checkCatch(g, p, pts);
@@ -400,7 +401,7 @@
           else { const o = g.players[f.payee]; o.cash += f.amount; o.received += f.amount; if (allSold(g)) { p.f10++; o.r10++; } else { p.f5++; o.r5++; } notes.push('paid ' + money(f.amount) + ' to ' + o.name + ' (' + f.rail + ')'); }
         }
       });
-      const arrived = w.arrived;
+      const arrived = w.arrived; g.trails = g.trails || {}; g.trails[p.id] = w.segs.map(q => ({ hop: q.hop, from: q.from, to: q.to, start: q.start, take: q.take })); g.lastMover = p.id;
       if (w.at === 'city') { p.loc = w.city; p.path = []; p.h = 0; p.dd = 0; }
       else { p.loc = w.from; p.path = [{ hop: w.hop, from: w.from, to: w.to, dots: M.hops[w.hop].nd }]; p.h = 0; p.dd = w.dd; }
       g.walk = null; g.phase = 'route';

@@ -181,7 +181,7 @@
       el('path', { d, fill: 'none', stroke: '#ffd400', 'stroke-width': 13, opacity: 0.55, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, layers.route);
       (p.via || []).forEach(v => { const vc = P.city[v]; el('circle', { cx: vc.x, cy: vc.y, r: 15, fill: 'none', stroke: '#111', 'stroke-width': 4, 'stroke-dasharray': '5 3' }, layers.route); });
     }
-    drawWalk();
+    drawTrails(); drawWalk();
     const seen = {}, dests = {}, origs = {};
     g.players.forEach(pl => { if (!pl.loc) return; if (pl.dest) { (dests[pl.dest] = dests[pl.dest] || []).push(pl); if (pl.origin && pl.origin !== pl.dest) (origs[pl.origin] = origs[pl.origin] || []).push(pl); } });
     // start and destination markers are solid discs under the tracks, dots and pips (largest first so several players can share a city)
@@ -219,6 +219,20 @@
     if (dd <= 0) { const c = P.city[seg.from]; return [c.x, c.y]; }
     if (dd >= hop.nd) { const c = P.city[seg.to]; return [c.x, c.y]; }
     const pt = hop.dotpts[(seg.from === hop.a ? dd : hop.nd - dd) - 1]; return [pt[0], pt[1]];
+  }
+  /* where each player went on their last move stays marked in their colour (the newest strongest), so you can see what a bot just did */
+  function drawTrails() {
+    if (!g || !g.trails || prefs.trails === false || anim) return;
+    Object.keys(g.trails).forEach(k => {
+      const id = +k, segs = g.trails[k], col = COLORS[id % COLORS.length], latest = g.lastMover === id;
+      segs.forEach(seg => {
+        const pts = []; for (let d = seg.start; d <= seg.start + seg.take; d++) pts.push(posAt(seg, d));
+        const pl = pts.map(q => q.join(',')).join(' ');
+        el('polyline', { points: pl, fill: 'none', stroke: '#fff', 'stroke-width': latest ? 17 : 12, opacity: latest ? 0.75 : 0.4, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'pointer-events': 'none' }, layers.steps);
+        el('polyline', { points: pl, fill: 'none', stroke: col, 'stroke-width': latest ? 11 : 7, opacity: latest ? 0.9 : 0.5, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'pointer-events': 'none' }, layers.steps);
+        if (latest) pts.slice(1).forEach(q => el('circle', { cx: q[0], cy: q[1], r: 4.5, fill: '#fff', stroke: col, 'stroke-width': 2, 'pointer-events': 'none' }, layers.steps));
+      });
+    });
   }
   function drawWalk() { // the pips walked so far (trail) and the pips you can click next
     if (!g || g.phase !== 'walk' || !g.walk) return;
@@ -555,6 +569,7 @@
     if (e.target.id === 'stp') { prefs.step = e.target.checked; savePrefs(); }
     if (e.target.id === 'tg') { prefs.tags = e.target.checked; drawTags(); savePrefs(); }
     if (e.target.id === 'thk') { prefs.thick = e.target.checked; savePrefs(); const keep = Object.assign({}, vb); buildMap(); vb = keep; applyView(); updateMap(); }
+    if (e.target.id === 'trl') { prefs.trails = e.target.checked; savePrefs(); updateMap(); }
     if (e.target.id === 'crd') { prefs.cards = e.target.checked; applyTight(); updateMap(); savePrefs(); }
     if (e.target.id === 'tgt') { prefs.tight = e.target.checked; applyTight(); savePrefs(); }
     if (e.target.id === 'spd') { prefs.speed = +e.target.value; savePrefs(); }
@@ -615,7 +630,7 @@
   $('hsold').onchange = e => { prefs.hideSold = e.target.checked; savePrefs(); if (g) $('rails').innerHTML = railsHtml(); };
   document.addEventListener('toggle', e => { const d = e.target; if (d.dataset && d.dataset.grp) { prefs.shut = prefs.shut || {}; prefs.shut[d.dataset.grp] = !d.open; savePrefs(); } }, true);
   $('bsave').onclick = () => { if (g) download('iron-meridian-save.json', JSON.stringify(g)); };
-  $('hm').checked = prefs.homes !== false; $('stp').checked = prefs.step !== false; $('tg').checked = prefs.tags !== false; $('crd').checked = !!prefs.cards; $('thk').checked = !!prefs.thick; $('tgt').checked = !!prefs.tight; $('spd').value = String(prefs.speed); $('fol').checked = prefs.follow; $('man').checked = prefs.manual;
+  $('hm').checked = prefs.homes !== false; $('stp').checked = prefs.step !== false; $('tg').checked = prefs.tags !== false; $('crd').checked = !!prefs.cards; $('trl').checked = prefs.trails !== false; $('thk').checked = !!prefs.thick; $('tgt').checked = !!prefs.tight; $('spd').value = String(prefs.speed); $('fol').checked = prefs.follow; $('man').checked = prefs.manual;
 
   buildMap(); if (prefs.tight || prefs.cards) applyTight(); updateMap();
   window.baronDebug = { B, get g() { return g; }, set g(v) { g = v; }, render, afterAction, handleMapClick, selectRail, closeTip, turnIntro };
