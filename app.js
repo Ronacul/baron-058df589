@@ -195,6 +195,7 @@
   }
   function drawSlots() {
     layers.slots.innerHTML = ''; if (!prefs.cards) return; const L = slotLayout();
+    { const hd = L.heads.find(x => x.name === 'Cross-region'); if (hd) drawEraPlaque(layers.slots, hd.x + hd.rails * (CW + CG) + 24, hd.y); }
     L.heads.forEach(h2 => { // a header for each group: the region, how many rails and cities
       const wide = h2.name === 'Cross-region' ? h2.rails * (CW + CG) - CG : CW, gg = el('g', {}, layers.slots);
       el('rect', { x: h2.x, y: h2.y, width: wide, height: HH, rx: 6, fill: h2.color }, gg);
@@ -239,8 +240,15 @@
     if (letter) { const t2 = el('text', { x: kind === 'steam' ? -22 : -14, y: kind === 'steam' ? 1 : 4, 'text-anchor': 'middle', 'font-size': 17, 'font-weight': 800, fill: '#fff', stroke: ink, 'stroke-width': 3, 'paint-order': 'stroke', 'font-family': 'sans-serif' }, g2); t2.textContent = letter; }
     return g2;
   }
+  function drawEraPlaque(parent, x, y) { // the era badge as part of the board, drawn beside the cross-region cards
+    const gp = el('g', { transform: 'translate(' + x + ',' + y + ')' }, parent);
+    el('rect', { x: 0, y: 0, width: 330, height: 92, rx: 14, fill: '#f6e3a1', stroke: '#9a7200', 'stroke-width': 5 }, gp);
+    drawTrain(gp, ERA.icon || 'steam', '#b8860b', '#3a2a00', '', 1.2).setAttribute('transform', 'translate(58,46) scale(1.2)');
+    const a1 = el('text', { x: 110, y: 40, 'font-size': 26, 'font-weight': 800, fill: '#3a2a00', 'font-family': 'sans-serif' }, gp); a1.textContent = (ERA.year ? ERA.year + ' · ' : '') + (ERA.label || 'Classic');
+    const a2 = el('text', { x: 110, y: 70, 'font-size': 18, fill: '#6b4e00', 'font-family': 'sans-serif' }, gp); a2.textContent = 'Fast train: ' + UP;
+  }
   function drawEra() { // the plaque in the corner of the board that says which era was chosen
-    const box = $('era'); if (!box) return; box.innerHTML = '';
+    const box = $('era'); if (!box) return; box.innerHTML = ''; box.style.display = prefs.cards ? 'none' : '';
     const s = el('svg', { viewBox: '-36 -24 72 44', width: 58, height: 36 }, null); box.appendChild(s); drawTrain(s, ERA.icon || 'steam', '#b8860b', '#3a2a00', '', 0.95);
     const d = document.createElement('div'); d.innerHTML = '<b>' + esc(ERA.year ? ERA.year + ' &middot; ' : '') + esc(ERA.label || 'Classic') + '</b><span>Fast train: ' + esc(UP) + '</span>'; box.appendChild(d); box.title = 'Era: ' + (ERA.label || 'Classic') + '. The upgrade is called the ' + UP + '.';
     const h1 = document.querySelector('header h1'); if (h1) h1.textContent = 'Iron Meridian' + (ERA.year ? ' · ' + ERA.year : '');
@@ -284,7 +292,7 @@
         const pos = B.tokenPos(g, pl), key = pos.join(','), n = seen[key] = (seen[key] || 0) + 1, off = (n - 1) * 11;
         const tg = el('g', { transform: 'translate(' + (pos[0] + off) + ',' + (pos[1] - off) + ')', 'pointer-events': 'none' }, layers.tokens);
         if (flashId === pl.id || flashIds.indexOf(pl.id) >= 0) { const ring = el('circle', { r: 16, fill: 'none', stroke: col, 'stroke-width': 6 }, tg); ring.classList.add('ring'); }
-        if (pl.sc) drawTrain(tg, ERA.icon || 'steam', col, pl.id === g.turn ? '#000' : '#fff', (pl.name[0] || '?').toUpperCase(), 0.8);
+        if (pl.sc) { el('rect', { x: -31, y: -22, width: 62, height: 40, rx: 13, fill: '#fff', stroke: pl.id === g.turn ? '#000' : '#444', 'stroke-width': pl.id === g.turn ? 3.5 : 2, opacity: 0.96 }, tg); drawTrain(tg, ERA.icon || 'steam', col, '#222', (pl.name[0] || '?').toUpperCase(), 0.78); }
         else { el('circle', { r: 16, fill: col, stroke: pl.id === g.turn ? '#000' : '#fff', 'stroke-width': pl.id === g.turn ? 4 : 2.5 }, tg);
           const t = el('text', { 'text-anchor': 'middle', y: 6, 'font-size': 18, 'font-weight': 800, fill: '#fff', 'font-family': 'sans-serif' }, tg); t.textContent = (pl.name[0] || '?').toUpperCase(); }
       }
@@ -526,9 +534,9 @@
     const a = walletEl(from), b = walletEl(to); if (!a || !b) return;
     const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect(), x0 = ra.left + ra.width / 2, y0 = ra.top + ra.height / 2, x1 = rb.left + rb.width / 2, y1 = rb.top + rb.height / 2;
     const c = document.createElement('div'); c.className = 'coin ' + (to < 0 ? 'tobank' : (from < 0 ? 'frombank' : 'p2p')); c.innerHTML = '<span>💰</span><b>' + money(amt) + '</b>'; document.body.appendChild(c);
-    const mx = (x0 + x1) / 2, my = Math.max(y0, y1) + 70 + Math.random() * 30, T = (x, y, s) => 'translate(' + x + 'px,' + y + 'px) translate(-50%,-50%) scale(' + s + ')';
+    const mx = (x0 + x1) / 2, my = Math.max(y0, y1) + 26 + Math.random() * 14, T = (x, y, s) => 'translate(' + x + 'px,' + y + 'px) translate(-50%,-50%) scale(' + s + ')';
     setTimeout(() => bump(from, 'bump-out'), delay);
-    const an = c.animate([{ transform: T(x0, y0, 0.5), opacity: 0 }, { transform: T(x0, y0 + 14, 1.25), opacity: 1, offset: 0.14 }, { transform: T(mx, my, 1.35), opacity: 1, offset: 0.55 }, { transform: T(x1, y1 + 6, 0.9), opacity: 1, offset: 0.92 }, { transform: T(x1, y1, 0.4), opacity: 0 }], { duration: 1700, delay, easing: 'ease-in-out', fill: 'both' });
+    const an = c.animate([{ transform: T(x0, y0, 0.5), opacity: 0 }, { transform: T(x0, y0 + 14, 1.25), opacity: 1, offset: 0.14 }, { transform: T(mx, my, 1.35), opacity: 1, offset: 0.55 }, { transform: T(x1, y1 + 6, 0.9), opacity: 1, offset: 0.92 }, { transform: T(x1, y1, 0.4), opacity: 0 }], { duration: 1250, delay, easing: 'ease-in-out', fill: 'both' });
     an.onfinish = () => { c.remove(); bump(to, 'bump-in'); };
   }
   function cashFloats() { // fly a coin for every payment made since the last render
@@ -668,7 +676,7 @@
       const trail = [start].concat(pts.slice(0, i)); if (trail.length > 1) el('polyline', { points: trail.map(q => q.join(',')).join(' '), fill: 'none', stroke: col, 'stroke-width': 10, opacity: 0.85, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, layers.anim);
       pts.slice(0, i).forEach(q => el('circle', { cx: q[0], cy: q[1], r: 4, fill: '#fff', stroke: col, 'stroke-width': 2 }, layers.anim));
       const pos = i ? pts[i - 1] : start, tg = el('g', { transform: 'translate(' + pos[0] + ',' + pos[1] + ')', 'pointer-events': 'none' }, layers.anim);
-      if (p.sc) drawTrain(tg, ERA.icon || 'steam', col, '#000', (snap.name[0] || '?').toUpperCase(), 0.85);
+      if (p.sc) { el('rect', { x: -33, y: -23, width: 66, height: 42, rx: 13, fill: '#fff', stroke: '#000', 'stroke-width': 3.5 }, tg); drawTrain(tg, ERA.icon || 'steam', col, '#222', (snap.name[0] || '?').toUpperCase(), 0.82); }
       else { el('circle', { r: 17, fill: col, stroke: '#000', 'stroke-width': 4 }, tg); const tx = el('text', { 'text-anchor': 'middle', y: 6, 'font-size': 19, 'font-weight': 800, fill: '#fff', 'font-family': 'sans-serif' }, tg); tx.textContent = (snap.name[0] || '?').toUpperCase(); }
       const left = mv.rolled - i; pb.innerHTML = '<span>' + esc(snap.name) + ' rolled ' + dice + ' = ' + mv.rolled + (g.dbl6 && !g.bonus ? ' DOUBLE SIX' : '') + '</span><b>' + left + '</b><span>pip' + (left === 1 ? '' : 's') + ' left' + (i === pts.length && left > 0 ? ' (lost on arrival)' : '') + '</span>';
     };
@@ -722,7 +730,7 @@
     if (e.target.id === 'pal') { prefs.palette = e.target.value; COLORS = PALETTES[prefs.palette] || PALETTES.classic; savePrefs(); if (g) render(); }
     if (e.target.id === 'pln') { prefs.plain = e.target.checked; savePrefs(); updateMap(); }
     if (e.target.id === 'trl') { prefs.trails = e.target.checked; savePrefs(); updateMap(); }
-    if (e.target.id === 'crd') { prefs.cards = e.target.checked; applyTight(); updateMap(); savePrefs(); }
+    if (e.target.id === 'crd') { prefs.cards = e.target.checked; applyTight(); drawEra(); updateMap(); savePrefs(); }
     if (e.target.id === 'tgt') { prefs.tight = e.target.checked; applyTight(); savePrefs(); }
     if (e.target.id === 'spd') { prefs.speed = +e.target.value; savePrefs(); }
     if (e.target.id === 'fol') { prefs.follow = e.target.checked; savePrefs(); }
