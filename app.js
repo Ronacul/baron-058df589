@@ -28,6 +28,54 @@
     }
     return d;
   }
+  /* Parallel tracks: each rail keeps the same side of its neighbours all along its route (lane order is worked out once so a rail does not
+     swap sides hop after hop), and the tracks meet at every pip and at the city, bulging apart only between them, so they visibly connect. */
+  let LANE = null;
+  function laneOrders() {
+    if (LANE) return LANE;
+    const key = {}; M.hops.forEach((h, i) => { key[h.a + '|' + h.b] = i; key[h.b + '|' + h.a] = i; });
+    // every place two hops meet along a rail's route, and which rails run straight through it (with the side each hop is seen from)
+    const trs = {}, byHop = M.hops.map(() => []);
+    M.rails.forEach(r => (r.routes || []).forEach(route => {
+      for (let i = 1; i < route.length - 1; i++) {
+        const h1 = key[route[i - 1] + '|' + route[i]], h2 = key[route[i] + '|' + route[i + 1]]; if (h1 === undefined || h2 === undefined || h1 === h2) continue;
+        if (M.hops[h1].rails.length < 2 || M.hops[h2].rails.length < 2) continue;
+        const k = h1 + '>' + h2 + '@' + route[i];
+        if (!trs[k]) { trs[k] = { h1, h2, s1: M.hops[h1].b === route[i] ? 1 : -1, s2: M.hops[h2].a === route[i] ? 1 : -1, rails: [] }; byHop[h1].push(trs[k]); byHop[h2].push(trs[k]); }
+        if (trs[k].rails.indexOf(r.code) < 0) trs[k].rails.push(r.code);
+      }
+    }));
+    const ord = M.hops.map(h => h.rails.slice());
+    const pos = (hi, code) => ord[hi].indexOf(code) - (ord[hi].length - 1) / 2;
+    const costOf = tr => { let c = 0; for (let i = 0; i < tr.rails.length; i++) for (let j = i + 1; j < tr.rails.length; j++) { const A = tr.rails[i], Bc = tr.rails[j]; if ((tr.s1 * (pos(tr.h1, A) - pos(tr.h1, Bc))) * (tr.s2 * (pos(tr.h2, A) - pos(tr.h2, Bc))) < 0) c++; }
+      tr.rails.forEach(A => { if ((tr.s1 * pos(tr.h1, A)) * (tr.s2 * pos(tr.h2, A)) < 0) c++; }); return c; }; // and a rail that swings across the corridor centre counts too
+    const hopCost = hi => byHop[hi].reduce((s, tr) => s + costOf(tr), 0);
+    // simulated annealing over the order of the rails inside each hop; fewer crossings between neighbouring hops is better
+    let seed = 12345; const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+    const multi = M.hops.map((h, i) => i).filter(i => ord[i].length > 1 && byHop[i].length);
+    if (multi.length) for (let it = 0, N = 30000; it < N; it++) {
+      const T = 1.2 * (1 - it / N) + 0.02, hi = multi[Math.floor(rnd() * multi.length)], n = ord[hi].length, k = Math.floor(rnd() * (n - 1));
+      const before = hopCost(hi); [ord[hi][k], ord[hi][k + 1]] = [ord[hi][k + 1], ord[hi][k]];
+      const d = hopCost(hi) - before; if (d > 0 && rnd() > Math.exp(-d / T)) [ord[hi][k], ord[hi][k + 1]] = [ord[hi][k + 1], ord[hi][k]];
+    }
+    LANE = M.hops.map((h, hi) => { const o = {}; ord[hi].forEach((code, k) => { o[code] = k - (ord[hi].length - 1) / 2; }); return o; });
+    return LANE;
+  }
+  /* the track's points: parallel to the hop's centreline by its lane, easing smoothly in to the centre as it reaches each city so the tracks meet there */
+  function railPts(h, hi, code, spacing) {
+    const lane = laneOrders()[hi][code] || 0, P0 = h.pts;
+    if (!lane) return P0.map(p => [p[0], p[1]]);
+    const cum = [0]; for (let j = 1; j < P0.length; j++) cum.push(cum[j - 1] + Math.hypot(P0[j][0] - P0[j - 1][0], P0[j][1] - P0[j - 1][1]));
+    const L = cum[cum.length - 1] || 1, T = Math.min(80, 0.5 * L), N = Math.max(10, Math.ceil(L / 10)), out = [];
+    for (let n = 0; n <= N; n++) {
+      const s = L * n / N; let j = 1; while (j < cum.length - 1 && cum[j] < s) j++;
+      const f = (s - cum[j - 1]) / ((cum[j] - cum[j - 1]) || 1), A = P0[j - 1], Bq = P0[j], x = A[0] + (Bq[0] - A[0]) * f, y = A[1] + (Bq[1] - A[1]) * f;
+      const dx = Bq[0] - A[0], dy = Bq[1] - A[1], len = Math.hypot(dx, dy) || 1, nx = -dy / len, ny = dx / len;
+      const u = Math.min(1, Math.min(s, L - s) / T), ease = u * u * (3 - 2 * u), off = lane * spacing * ease;
+      out.push([x + nx * off, y + ny * off]);
+    }
+    return out;
+  }
   function buildMap() {
     svg.innerHTML = '';
     ['land', 'fx', 'mark', 'slots', 'names', 'halo', 'rails', 'route', 'dots', 'tags', 'hit', 'cities', 'steps', 'tokens', 'anim'].forEach(n => { layers[n] = el('g', { id: 'L-' + n }, svg); });
@@ -41,10 +89,10 @@
       const cs = M.cities.filter(c => c.r === rg.name); let sx = 0, sy = 0; cs.forEach(c => { sx += c.x; sy += c.y; });
       const t = el('text', { x: sx / cs.length, y: sy / cs.length - 70, 'text-anchor': 'middle', 'font-size': 22, 'font-weight': 800, 'letter-spacing': 4, fill: rg.line, opacity: 0.5 }, layers.names); t.textContent = rg.name.toUpperCase();
     });
-    M.hops.forEach(h => {
+    M.hops.forEach((h, hi) => {
       const cnt = h.rails.length;
       h.rails.forEach((code, k) => {
-        const r = P.rail[code], off = (k - (cnt - 1) / 2) * (prefs.thick ? 17 : 7.5), pts = h.pts.map(p => [p[0] + h.nx * off, p[1] + h.ny * off]), d = smooth(pts);
+        const r = P.rail[code], pts = railPts(h, hi, code, prefs.thick ? 17 : 7.5), d = smooth(pts);
         const edge = el('path', { d, fill: 'none', stroke: 'none', 'stroke-linecap': 'round', 'data-rail': code }, layers.halo); edge.classList.add('haloe');
         const halo = el('path', { d, fill: 'none', stroke: 'none', 'stroke-linecap': 'round', 'data-rail': code }, layers.halo); halo.classList.add('halo');
         const g1 = el('g', { 'data-rail': code }, layers.rails); g1.classList.add('railg');
@@ -648,7 +696,7 @@
   $('hm').checked = prefs.homes !== false; $('stp').checked = prefs.step !== false; $('tg').checked = prefs.tags !== false; $('crd').checked = !!prefs.cards; $('trl').checked = prefs.trails !== false; $('pal').value = prefs.palette || 'classic'; $('thk').checked = !!prefs.thick; $('tgt').checked = !!prefs.tight; $('spd').value = String(prefs.speed); $('fol').checked = prefs.follow; $('man').checked = prefs.manual;
 
   buildMap(); if (prefs.tight || prefs.cards) applyTight(); updateMap();
-  window.baronDebug = { B, get g() { return g; }, set g(v) { g = v; }, render, afterAction, handleMapClick, selectRail, closeTip, turnIntro };
+  window.baronDebug = { B, laneOrders, get g() { return g; }, set g(v) { g = v; }, render, afterAction, handleMapClick, selectRail, closeTip, turnIntro };
   let saved = null; try { saved = localStorage.getItem(SAVE); } catch (e) { /* none */ }
   if (saved) { try { g = JSON.parse(saved); afterAction(); } catch (e) { openSetup(); } } else { openSetup(); }
 })();
