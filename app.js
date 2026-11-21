@@ -42,7 +42,7 @@
     M.hops.forEach(h => {
       const cnt = h.rails.length;
       h.rails.forEach((code, k) => {
-        const r = P.rail[code], off = (k - (cnt - 1) / 2) * 7.5, pts = h.pts.map(p => [p[0] + h.nx * off, p[1] + h.ny * off]), d = smooth(pts);
+        const r = P.rail[code], off = (k - (cnt - 1) / 2) * (prefs.thick ? 17 : 7.5), pts = h.pts.map(p => [p[0] + h.nx * off, p[1] + h.ny * off]), d = smooth(pts);
         const halo = el('path', { d, fill: 'none', stroke: 'none', 'stroke-linecap': 'round', 'data-rail': code }, layers.halo); halo.classList.add('halo');
         const g1 = el('g', { 'data-rail': code }, layers.rails); g1.classList.add('railg');
         el('path', { d, fill: 'none', stroke: '#fff', 'stroke-width': r.w + 2.6, opacity: 0.8, 'stroke-linejoin': 'round' }, g1);
@@ -125,11 +125,11 @@
   }
   /* card slots around the board, like the printed version: a placeholder for each rail card. Plain and dashed while the rail is for sale,
      filled in the owner's colour once bought. Cross-region rails along the top, the west regions down the left, the east regions down the right. */
-  const CW = 210, CH = 90, CG = 8, HH = 46; let slotsCache = null;
+  const CW = 210, CH = 78, CG = 7, HH = 38; let slotsCache = null;
   const railCities = r => [...(P.rail[r.code].cities || [])], railRegions = r => new Set(railCities(r).map(c => P.city[c] && P.city[c].r)).size;
   function slotLayout() {
     if (slotsCache) return slotsCache;
-    const P0 = playBox(), pos = {}, heads = [], by = name => M.rails.filter(r => (r.premium ? 'Cross-region' : r.home) === name).sort((a, b) => b.price - a.price);
+    const P0 = playBox(), pos = {}, heads = [], by = name => M.rails.filter(r => groupOf(r) === name).sort((a, b) => b.price - a.price);
     const head = (name, x, y) => { const rg = M.regions.find(q => q.name === name), q = by(name); heads.push({ name, x, y, color: rg ? rg.line : '#222', rails: q.length, cities: rg ? M.cities.filter(c => c.r === name).length : 0 }); };
     const column = (groups, x) => { const gs = groups.map(by), n = gs.reduce((s2, q) => s2 + q.length, 0), tot = n * (CH + CG) + gs.length * (HH + 6) + (gs.length - 1) * 14; let y = P0.y + (P0.h - tot) / 2;
       groups.forEach((name, gi) => { head(name, x, y); y += HH + 6; gs[gi].forEach(r => { pos[r.code] = { x, y }; y += CH + CG; }); y += 14; }); };
@@ -143,22 +143,25 @@
   function drawSlots() {
     layers.slots.innerHTML = ''; if (!prefs.cards) return; const L = slotLayout();
     L.heads.forEach(h2 => { // a header for each group: the region, how many rails and cities
-      const wide = h2.name === 'Cross-region' ? 8 * (CW + CG) - CG : CW, gg = el('g', {}, layers.slots);
+      const wide = h2.name === 'Cross-region' ? h2.rails * (CW + CG) - CG : CW, gg = el('g', {}, layers.slots);
       el('rect', { x: h2.x, y: h2.y, width: wide, height: HH, rx: 6, fill: h2.color }, gg);
-      const t = el('text', { x: h2.x + 10, y: h2.y + 20, 'font-size': 16, 'font-weight': 800, fill: '#fff', 'font-family': 'sans-serif' }, gg); t.textContent = h2.name;
-      const t6 = el('text', { x: h2.x + 10, y: h2.y + 38, 'font-size': 13, 'font-weight': 600, fill: '#fff', 'font-family': 'sans-serif' }, gg); t6.textContent = h2.rails + ' rails' + (h2.cities ? ' · ' + h2.cities + ' cities' : ' · span several regions');
+      const t = el('text', { x: h2.x + 10, y: h2.y + 17, 'font-size': 15, 'font-weight': 800, fill: '#fff', 'font-family': 'sans-serif' }, gg); t.textContent = h2.name;
+      const t6 = el('text', { x: h2.x + 10, y: h2.y + 32, 'font-size': 12, 'font-weight': 600, fill: '#fff', 'font-family': 'sans-serif' }, gg); t6.textContent = h2.rails + ' rails' + (h2.cities ? ' · ' + h2.cities + ' cities' : ' · span several regions');
     });
     M.rails.forEach(r => {
       const q = L.pos[r.code]; if (!q) return; const o = g ? g.owner[r.code] : undefined, own = o !== undefined, oc = own ? COLORS[o % COLORS.length] : null, ink = own ? '#fff' : '#222', sub = own ? '#fff' : '#555';
       const gg = el('g', { 'data-hit': r.code, style: 'cursor:pointer' }, layers.slots);
       const bx = el('rect', { x: q.x, y: q.y, width: CW, height: CH, rx: 8, fill: own ? oc : '#fffaf0', stroke: own ? '#111' : '#8a8370', 'stroke-width': own ? 4 : 2 }, gg); if (!own) bx.setAttribute('stroke-dasharray', '9 6');
-      el('rect', { x: q.x + 7, y: q.y + 7, width: 11, height: CH - 14, rx: 3, fill: r.color, stroke: '#fff', 'stroke-width': 1.5 }, gg);
-      const nc = railCities(r).length, nr = railRegions(r);
-      const t1 = el('text', { x: q.x + 30, y: q.y + 28, 'font-size': 24, 'font-weight': 800, fill: ink, 'font-family': 'sans-serif' }, gg); t1.textContent = r.code;
-      const t3 = el('text', { x: q.x + CW - 12, y: q.y + 28, 'text-anchor': 'end', 'font-size': 21, 'font-weight': 800, fill: ink, 'font-family': 'sans-serif' }, gg); t3.textContent = money(r.price * M.unit);
-      const t2 = el('text', { x: q.x + 30, y: q.y + 46, 'font-size': 12.5, fill: sub, 'font-family': 'sans-serif' }, gg); t2.textContent = r.name.length > 26 ? r.name.slice(0, 25) + '…' : r.name;
-      const t5 = el('text', { x: q.x + 30, y: q.y + 63, 'font-size': 13, 'font-weight': 700, fill: ink, 'font-family': 'sans-serif' }, gg); t5.textContent = nc + ' cities · ' + nr + ' region' + (nr === 1 ? '' : 's');
-      const t4 = el('text', { x: q.x + 30, y: q.y + 80, 'font-size': 12.5, 'font-weight': 700, fill: sub, 'font-family': 'sans-serif' }, gg); t4.textContent = own ? 'Owned by ' + g.players[o].name : 'For sale';
+      const lw = Math.min(r.w * 1.8, 9), dash = r.dash ? r.dash.split(/[ ,]+/).map(x => (+x * 1.7).toFixed(1)).join(' ') : ''; // the track as drawn on the map: colour, thickness, dotted or dashed
+      el('line', { x1: q.x + 14, y1: q.y + 7, x2: q.x + 14, y2: q.y + CH - 7, stroke: '#fff', 'stroke-width': lw + 3 }, gg);
+      const sl = el('line', { x1: q.x + 14, y1: q.y + 7, x2: q.x + 14, y2: q.y + CH - 7, stroke: r.color, 'stroke-width': lw }, gg); if (dash) sl.setAttribute('stroke-dasharray', dash);
+      const nc = railCities(r).length, nr = railRegions(r), bw = 16 + 13 * r.code.length; // the code in a box with the same colour as its label on the map
+      el('rect', { x: q.x + 30, y: q.y + 7, width: bw, height: 27, rx: 5, fill: '#fff', stroke: r.color, 'stroke-width': r.premium ? 3.4 : 2.4 }, gg);
+      const t1 = el('text', { x: q.x + 30 + bw / 2, y: q.y + 28, 'text-anchor': 'middle', 'font-size': 20, 'font-weight': 800, fill: r.premium ? r.color : '#222', 'font-family': 'sans-serif' }, gg); t1.textContent = r.code;
+      const t3 = el('text', { x: q.x + CW - 12, y: q.y + 28, 'text-anchor': 'end', 'font-size': 20, 'font-weight': 800, fill: ink, 'font-family': 'sans-serif' }, gg); t3.textContent = money(r.price * M.unit);
+      const t2 = el('text', { x: q.x + 30, y: q.y + 49, 'font-size': 12.5, fill: sub, 'font-family': 'sans-serif' }, gg); t2.textContent = r.name.length > 26 ? r.name.slice(0, 25) + '…' : r.name;
+      const t5 = el('text', { x: q.x + 30, y: q.y + 68, 'font-size': 12.5, 'font-weight': 700, fill: ink, 'font-family': 'sans-serif' }, gg); t5.textContent = nc + ' cities · ' + nr + ' region' + (nr === 1 ? '' : 's');
+      const t4 = el('text', { x: q.x + CW - 12, y: q.y + 68, 'text-anchor': 'end', 'font-size': 12.5, 'font-weight': 700, fill: sub, 'font-family': 'sans-serif' }, gg); t4.textContent = own ? g.players[o].name.slice(0, 9) : 'For sale';
     });
   }
   /* ---------- dynamic map layers ---------- */
@@ -166,7 +169,7 @@
   function updateMap() {
     document.querySelectorAll('#L-halo .halo').forEach(h => {
       const code = h.getAttribute('data-rail'), o = g ? g.owner[code] : undefined;
-      if (o === undefined) { h.setAttribute('stroke', 'none'); } else { h.setAttribute('stroke', COLORS[o % COLORS.length]); h.setAttribute('stroke-width', P.rail[code].w + 9); h.setAttribute('opacity', 0.75); }
+      if (o === undefined) { h.setAttribute('stroke', 'none'); } else { h.setAttribute('stroke', COLORS[o % COLORS.length]); h.setAttribute('stroke-width', P.rail[code].w + (prefs.thick ? 13 : 5)); h.setAttribute('opacity', 0.75); }
     });
     document.querySelectorAll('#L-rails .railg').forEach(x => x.classList.toggle('flash', x.getAttribute('data-rail') === hi));
     layers.route.innerHTML = ''; layers.tokens.innerHTML = ''; layers.steps.innerHTML = ''; layers.mark.innerHTML = ''; drawTags(); drawSlots();
@@ -331,7 +334,13 @@
   }
   /* rails grouped like the printed map: the cross-region ones first, then the left side (British, France, Iberia, Italy), then the right (Scandinavia, Germanic, Alpine, Balkans) */
   const GROUP_ORDER = ['British Isles', 'France-Benelux', 'Iberia', 'Italy', 'Scandinavia-Baltic', 'Germanic Core', 'Alpine-Danube-Poland', 'Balkans & Anatolia'];
-  const groupOf = r => (r.premium ? 'Cross-region' : r.home);
+  /* a rail with half or more of its cities in one region is filed under that region; the rest span regions */
+  const groupMemo = {};
+  function groupOf(r) {
+    if (groupMemo[r.code]) return groupMemo[r.code]; let name = r.home;
+    if (r.premium) { const cs = [...(P.rail[r.code].cities || [])], by = {}; cs.forEach(c => { const rg = P.city[c] && P.city[c].r; by[rg] = (by[rg] || 0) + 1; }); name = 'Cross-region'; Object.keys(by).forEach(k => { if (by[k] * 2 >= cs.length) name = k; }); }
+    return (groupMemo[r.code] = name);
+  }
   function railsHtml() {
     const hide = prefs.hideSold && g, groups = ['Cross-region'].concat(GROUP_ORDER), shut = prefs.shut || {};
     return groups.map(name => {
@@ -545,6 +554,7 @@
     if (e.target.id === 'hm') { prefs.homes = e.target.checked; savePrefs(); updateMap(); }
     if (e.target.id === 'stp') { prefs.step = e.target.checked; savePrefs(); }
     if (e.target.id === 'tg') { prefs.tags = e.target.checked; drawTags(); savePrefs(); }
+    if (e.target.id === 'thk') { prefs.thick = e.target.checked; savePrefs(); const keep = Object.assign({}, vb); buildMap(); vb = keep; applyView(); updateMap(); }
     if (e.target.id === 'crd') { prefs.cards = e.target.checked; applyTight(); updateMap(); savePrefs(); }
     if (e.target.id === 'tgt') { prefs.tight = e.target.checked; applyTight(); savePrefs(); }
     if (e.target.id === 'spd') { prefs.speed = +e.target.value; savePrefs(); }
@@ -605,7 +615,7 @@
   $('hsold').onchange = e => { prefs.hideSold = e.target.checked; savePrefs(); if (g) $('rails').innerHTML = railsHtml(); };
   document.addEventListener('toggle', e => { const d = e.target; if (d.dataset && d.dataset.grp) { prefs.shut = prefs.shut || {}; prefs.shut[d.dataset.grp] = !d.open; savePrefs(); } }, true);
   $('bsave').onclick = () => { if (g) download('iron-meridian-save.json', JSON.stringify(g)); };
-  $('hm').checked = prefs.homes !== false; $('stp').checked = prefs.step !== false; $('tg').checked = prefs.tags !== false; $('crd').checked = !!prefs.cards; $('tgt').checked = !!prefs.tight; $('spd').value = String(prefs.speed); $('fol').checked = prefs.follow; $('man').checked = prefs.manual;
+  $('hm').checked = prefs.homes !== false; $('stp').checked = prefs.step !== false; $('tg').checked = prefs.tags !== false; $('crd').checked = !!prefs.cards; $('thk').checked = !!prefs.thick; $('tgt').checked = !!prefs.tight; $('spd').value = String(prefs.speed); $('fol').checked = prefs.follow; $('man').checked = prefs.manual;
 
   buildMap(); if (prefs.tight || prefs.cards) applyTight(); updateMap();
   window.baronDebug = { B, get g() { return g; }, set g(v) { g = v; }, render, afterAction, handleMapClick, selectRail, closeTip, turnIntro };
