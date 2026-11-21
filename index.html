@@ -19,7 +19,7 @@ header{display:flex;gap:8px;align-items:center;padding:6px 10px;background:#2239
 .gear{font-size:24px;line-height:1;width:40px;height:36px;border:1px solid #fff6;background:#fff2;color:#f5ebd3;border-radius:8px;cursor:pointer}
 .setl{display:flex;flex-direction:column;gap:10px;margin:10px 0}.setl label{display:flex;align-items:center;gap:8px;font-size:14px}
 .rgroup{margin:4px 0;border:1px solid var(--line);border-radius:6px;background:#fff}.rgroup>summary{cursor:pointer;padding:5px 8px;font-weight:700;font-size:13px;list-style:none}
-.rgroup>summary::before{content:"B8 ";}.rgroup[open]>summary::before{content:"BE ";}
+.rgroup>summary::before{content:"\25B8  ";}
 .rgroup .rt{margin:0 4px 4px;width:calc(100% - 8px)}
 #railsec>summary{cursor:pointer;font-weight:800;font-size:15px}
 #pipbox{position:absolute;right:8px;top:8px;background:#fffbe8;border:3px solid #c0392b;border-radius:12px;padding:4px 12px;text-align:center;box-shadow:0 2px 8px #0005;pointer-events:none;line-height:1}
@@ -27,6 +27,30 @@ header{display:flex;gap:8px;align-items:center;padding:6px 10px;background:#2239
 #pipbox span{font-size:12px;color:#555;display:block;margin:2px 0}
 #main.animfull #side{display:none!important}
 #main.animfull #mapwrap{flex:1 1 100%!important}
+#rollov{position:absolute;inset:0;z-index:30;background:rgba(15,25,20,.55);display:flex;align-items:center;justify-content:center;cursor:pointer}
+#rollov[hidden]{display:none}
+.rbox{background:#f5ecd4;border:3px solid #22392d;border-radius:16px;padding:16px 24px;text-align:center;box-shadow:0 8px 30px #0008;max-width:92%}
+#rt1{font-weight:800;font-size:17px;margin-bottom:10px}
+#rdice{display:flex;gap:18px;justify-content:center;margin:6px 0 12px}
+#rdice .die{width:84px;height:84px;position:relative;padding:0;cursor:default}
+#rt2{font-size:19px;font-weight:800;color:#1b6ec2;min-height:26px}
+.rbox .sk{font-size:11px;color:#777;margin-top:6px}
+.fxf{animation:fxp .75s ease-in-out 4;pointer-events:none}
+@keyframes fxp{0%,100%{opacity:.08}50%{opacity:.8}}
+.sb{border-collapse:collapse;width:100%;font-size:13px}
+.sb th{font-size:11px;color:var(--mut);text-align:left;padding:0 4px 2px;font-weight:600}
+.sb td{padding:3px 4px;border-top:1px solid var(--line);vertical-align:top}
+.sb tr.on td{background:#fff3b8}
+.sb tr.on td:first-child{box-shadow:inset 4px 0 0 var(--pc)}
+.sb .nm b{font-size:15px}.sb .cs{font-weight:800;font-size:15px;white-space:nowrap}.sb .cs.neg{color:#c00}
+.sb .muted{font-size:11px;line-height:1.2}
+.dicebtn{margin-top:0!important;padding:14px!important;font-size:17px!important}
+.trip{margin:6px 0 2px;font-size:13px}
+.routebox{margin:4px 0 0!important;padding:6px!important}
+.rmrow{display:flex;gap:4px}
+.rm{flex:1;display:flex!important;flex-direction:column;align-items:flex-start;border:1px solid var(--line);border-radius:6px;padding:3px 5px;cursor:pointer;font-size:12px;background:#fff}
+.rm.sel{border-color:var(--pri);background:#e8f1fb}.rm input{display:none}.rm .muted{font-size:11px}
+.b.sm{padding:1px 8px;font-size:12px}
 .hs{font-size:12px;display:inline-flex;gap:4px;align-items:center;margin:4px 0}
 header h1{font-size:16px;margin:0}
 header .sp{flex:0}
@@ -56,8 +80,8 @@ header .sp{flex:0}
 .rm{display:block;margin:2px 0}
 .manual{margin-top:6px;padding:4px;background:#fff3;border:1px dashed var(--line)}
 .manual input[type=number]{width:60px}
-.die{display:inline-block;font-size:44px;line-height:44px;margin-right:2px;color:#222;animation:pop .35s}
-.die.red{color:#c0392b}
+.gd{display:inline-block;font-size:34px;line-height:34px;margin-right:2px;color:#222;animation:pop .35s}
+.gd.red{color:#c0392b}
 @keyframes pop{from{transform:scale(1.5) rotate(-20deg);opacity:.2}to{transform:none;opacity:1}}
 .sum{font-size:13px}
 table{border-collapse:collapse;width:100%}
@@ -109,7 +133,8 @@ dialog h2{margin-top:0}.rules li{margin-bottom:5px}
    <svg id="map" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet"></svg>
    <div id="tip" hidden></div>
    <div id="pipbox" hidden></div>
-   <div class="mapctl"><button id="zin" title="Zoom in">+</button><button id="zout" title="Zoom out">&minus;</button><button id="zall" title="Whole map">&#8962;</button><button id="znow" title="Centre on the player">&#9678;</button></div>
+   <div id="rollov" hidden><div class="rbox"><div id="rt1"></div><div id="rdice"></div><div id="rt2"></div><div class="sk">tap to skip</div></div></div>
+   <div class="mapctl"><button id="zin" title="Zoom in">+</button><button id="zout" title="Zoom out">&minus;</button><button id="zall" title="Whole map">&#8962;</button><button id="ztight" title="Tight map: playable area only">&#9635;</button><button id="znow" title="Centre on the player">&#9678;</button></div>
   </section>
   <aside id="side">
    <div class="panel" id="players"></div>
@@ -128,11 +153,14 @@ dialog h2{margin-top:0}.rules li{margin-bottom:5px}
   <label><input type="checkbox" id="stp"> Click each pip to move</label>
   <label><input type="checkbox" id="hm"> Triangles on home cities</label>
   <label><input type="checkbox" id="tg"> Rail codes on the map</label>
+  <label><input type="checkbox" id="crd"> Rail cards on the map (price; bought ones in the owner's colour)</label>
+  <label><input type="checkbox" id="tgt"> Tight map (trim the Atlantic and the empty east)</label>
  </div>
  <div class="row"><button class="b pri" id="bnew">New game</button><button class="b" id="bsave">Save file</button><button class="b" id="brules">Rules</button><button class="b" id="setok">Close</button></div>
 </dialog>
 <script src="data-eurobaron.js"></script>
 <script src="engine.js"></script>
+<script src="dice3d.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

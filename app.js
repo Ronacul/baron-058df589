@@ -7,12 +7,13 @@
   const $ = id => document.getElementById(id);
   const esc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const FACE = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
-  let g = null, prefs = { speed: 650, follow: false, manual: false, tags: true, homes: true, step: true }, botTimer = null, paused = false, routeMode = 'balanced', hi = null, flashId = -1, animHide = -1, anim = null, tip = null, lastKey = '', introUntil = 0;
+  let g = null, prefs = { speed: 650, follow: false, manual: false, tags: true, homes: true, step: true, cards: false, tight: false }, botTimer = null, paused = false, routeMode = 'balanced', hi = null, flashId = -1, animHide = -1, anim = null, tip = null, lastKey = '', introUntil = 0;
   try { Object.assign(prefs, JSON.parse(localStorage.getItem(PREF) || '{}')); } catch (e) { /* no storage */ }
   const savePrefs = () => { try { localStorage.setItem(PREF, JSON.stringify(prefs)); } catch (e) { /* ignore */ } };
 
   /* ---------- map ---------- */
   const svg = $('map'), vbFull = { x: M.view[0], y: M.view[1], w: M.view[2], h: M.view[3] };
+  const vbAll = Object.assign({}, vbFull);
   let vb = Object.assign({}, vbFull);
   const layers = {};
   function el(tag, attrs, parent) { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
@@ -27,7 +28,7 @@
   }
   function buildMap() {
     svg.innerHTML = '';
-    ['land', 'names', 'halo', 'rails', 'route', 'dots', 'tags', 'hit', 'cities', 'steps', 'tokens', 'anim'].forEach(n => { layers[n] = el('g', { id: 'L-' + n }, svg); });
+    ['land', 'fx', 'mark', 'names', 'halo', 'rails', 'route', 'dots', 'tags', 'hit', 'cities', 'steps', 'tokens', 'anim'].forEach(n => { layers[n] = el('g', { id: 'L-' + n }, svg); });
     const gray = el('g', { fill: '#ece6d6', stroke: '#b5ae9a', 'stroke-width': 0.6 }, layers.land);
     M.land.filter(l => l.r < 0).forEach(l => el('path', { d: l.d }, gray));
     M.regions.forEach((rg, i) => {
@@ -52,12 +53,7 @@
       });
       h.pts.forEach(p => { if (p[2]) { el('circle', { cx: p[0], cy: p[1], r: 3.8, fill: '#111', stroke: '#fff', 'stroke-width': 1.3 }, layers.dots); } });
     });
-    (M.tags || []).forEach(t => {
-      const r = P.rail[t.code], w = 10 + 8.4 * t.code.length, tg = el('g', { 'data-hit': t.code, style: 'cursor:pointer' }, layers.tags);
-      el('rect', { x: t.x - w / 2, y: t.y - 9, width: w, height: 18, rx: 4, fill: '#fff', stroke: r.color, 'stroke-width': r.premium ? 2.6 : 1.8 }, tg);
-      const tx = el('text', { x: t.x, y: t.y + 4.6, 'text-anchor': 'middle', 'font-size': 13, 'font-weight': 800, fill: r.premium ? r.color : '#222', 'font-family': 'sans-serif' }, tg); tx.textContent = t.code;
-    });
-    layers.tags.style.display = prefs.tags === false ? 'none' : '';
+    drawTags();
     M.cities.forEach(c => {
       const one =(P.railsAt[c.n] || []).length === 1;
       const gg = el('g', { 'data-city': c.n }, layers.cities);
@@ -67,6 +63,15 @@
     });
     applyView();
   }
+  /* the playable part of the map only: no open Atlantic, no far east where there are no cities */
+  function playBox() {
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; const add = (x, y) => { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; };
+    M.cities.forEach(c => { add(c.x - 30, c.y - 30); add(c.x + 30, c.y + 30); const len = c.n.length * 8; if (c.la === 'end') add(c.lx - len, c.ly); else if (c.la === 'start') add(c.lx + len, c.ly); else { add(c.lx - len / 2, c.ly); add(c.lx + len / 2, c.ly); } });
+    M.hops.forEach(h => h.pts.forEach(p => add(p[0], p[1])));
+    (M.tags || []).forEach(t => { add(t.x - 34, t.y - 22); add(t.x + 34, t.y + 22); });
+    const pad = 30; return { x: x0 - pad, y: y0 - pad, w: x1 - x0 + 2 * pad, h: y1 - y0 + 2 * pad };
+  }
+  function applyTight() { Object.assign(vbFull, prefs.tight ? playBox() : vbAll); vb = Object.assign({}, vbFull); applyView(); }
   function applyView() { svg.setAttribute('viewBox', [vb.x, vb.y, vb.w, vb.h].join(' ')); }
   function zoomAt(f, cx, cy) {
     const nw = Math.min(vbFull.w * 1.1, Math.max(300, vb.w * f)), k = nw / vb.w, nh = vb.h * k;
@@ -103,6 +108,20 @@
     svg.addEventListener('pointerup', up); svg.addEventListener('pointercancel', up);
   })();
 
+  /* rail tags on the map: plain codes, or cards with the price. A bought rail is filled in its owner's colour with the owner's name. */
+  function drawTags() {
+    layers.tags.innerHTML = ''; const cards = !!prefs.cards;
+    (M.tags || []).forEach(t => {
+      const r = P.rail[t.code], o = g ? g.owner[t.code] : undefined, own = o !== undefined, oc = own ? COLORS[o % COLORS.length] : null;
+      const w = cards ? Math.max(54, 16 + 8.4 * t.code.length) : 10 + 8.4 * t.code.length, h = cards ? 34 : 18;
+      const tg = el('g', { 'data-hit': t.code, style: 'cursor:pointer' }, layers.tags);
+      el('rect', { x: t.x - w / 2, y: t.y - h / 2, width: w, height: h, rx: 4, fill: own ? oc : '#fff', stroke: own ? '#111' : r.color, 'stroke-width': own ? 3 : (r.premium ? 2.6 : 1.8) }, tg);
+      if (cards) el('rect', { x: t.x - w / 2 + 1, y: t.y - h / 2 + 1, width: w - 2, height: 5, rx: 2, fill: r.color }, tg);
+      const tx = el('text', { x: t.x, y: cards ? t.y - 0.5 : t.y + 4.6, 'text-anchor': 'middle', 'font-size': 13, 'font-weight': 800, fill: own ? '#fff' : (r.premium ? r.color : '#222'), 'font-family': 'sans-serif' }, tg); tx.textContent = t.code;
+      if (cards) { const sb = el('text', { x: t.x, y: t.y + 12, 'text-anchor': 'middle', 'font-size': 10.5, 'font-weight': 700, fill: own ? '#fff' : '#555', 'font-family': 'sans-serif' }, tg); sb.textContent = own ? g.players[o].name.slice(0, 8) : money(r.price * M.unit); }
+    });
+    layers.tags.style.display = (prefs.tags !== false || cards) ? '' : 'none';
+  }
   /* ---------- dynamic map layers ---------- */
   function updateMap() {
     document.querySelectorAll('#L-halo .halo').forEach(h => {
@@ -110,7 +129,7 @@
       if (o === undefined) { h.setAttribute('stroke', 'none'); } else { h.setAttribute('stroke', COLORS[o % COLORS.length]); h.setAttribute('stroke-width', P.rail[code].w + 9); h.setAttribute('opacity', 0.75); }
     });
     document.querySelectorAll('#L-rails .railg').forEach(x => x.classList.toggle('flash', x.getAttribute('data-rail') === hi));
-    layers.route.innerHTML = ''; layers.tokens.innerHTML = ''; layers.steps.innerHTML = '';
+    layers.route.innerHTML = ''; layers.tokens.innerHTML = ''; layers.steps.innerHTML = ''; layers.mark.innerHTML = ''; drawTags();
     if (!g) return;
     const p = B.cur(g);
     if (p.dest && p.path.length && animHide < 0) {
@@ -120,29 +139,25 @@
       (p.via || []).forEach(v => { const vc = P.city[v]; el('circle', { cx: vc.x, cy: vc.y, r: 15, fill: 'none', stroke: '#111', 'stroke-width': 4, 'stroke-dasharray': '5 3' }, layers.route); });
     }
     drawWalk();
-    const seen = {};
+    const seen = {}, dests = {}, origs = {};
+    g.players.forEach(pl => { if (!pl.loc) return; if (pl.dest) { (dests[pl.dest] = dests[pl.dest] || []).push(pl); if (pl.origin && pl.origin !== pl.dest) (origs[pl.origin] = origs[pl.origin] || []).push(pl); } });
+    // start and destination markers are solid discs under the tracks, dots and pips (largest first so several players can share a city)
+    Object.keys(origs).forEach(c => origs[c].forEach((pl, i) => { const oc = P.city[c], r = 14 + 7 * (origs[c].length - i); el('circle', { cx: oc.x, cy: oc.y, r: r + 3, fill: '#fff', opacity: 0.8 }, layers.mark); el('circle', { cx: oc.x, cy: oc.y, r, fill: COLORS[pl.id % COLORS.length], opacity: 0.45 }, layers.mark); }));
+    Object.keys(dests).forEach(c => dests[c].forEach((pl, i) => { const dc = P.city[c], r = 17 + 9 * (dests[c].length - i); el('circle', { cx: dc.x, cy: dc.y, r: r + 4, fill: '#fff' }, layers.mark); el('circle', { cx: dc.x, cy: dc.y, r, fill: COLORS[pl.id % COLORS.length] }, layers.mark); }));
     g.players.forEach(pl => {
       if (!pl.loc) return; // still rolling for a home city
       const col = COLORS[pl.id % COLORS.length];
-      if (pl.id !== animHide) {
-        const pos = B.tokenPos(g, pl), key = pos.join(','), n = seen[key] = (seen[key] || 0) + 1, dx = (n - 1) * 13 - 6;
-        const tg = el('g', { transform: 'translate(' + (pos[0] + dx) + ',' + (pos[1] - 22) + ')' }, layers.tokens);
-        if (flashId === pl.id) { const ring = el('circle', { r: 12, fill: 'none', stroke: col, 'stroke-width': 6 }, tg); ring.classList.add('ring'); }
-        el('circle', { r: 12, fill: col, stroke: pl.id === g.turn ? '#000' : '#fff', 'stroke-width': pl.id === g.turn ? 3.5 : 2 }, tg);
-        const t = el('text', { 'text-anchor': 'middle', y: 5, 'font-size': 14, 'font-weight': 800, fill: '#fff' }, tg); t.textContent = (pl.name[0] || '?').toUpperCase();
-        const nm = el('text', { 'text-anchor': 'middle', y: -19, 'font-size': 19, 'font-weight': 800, fill: col, stroke: '#fff', 'stroke-width': 5, 'paint-order': 'stroke', 'font-family': 'sans-serif' }, tg); nm.textContent = pl.name;
+      if (pl.id !== animHide) { // the token sits on its pip: a big disc with the player's letter
+        const pos = B.tokenPos(g, pl), key = pos.join(','), n = seen[key] = (seen[key] || 0) + 1, off = (n - 1) * 11;
+        const tg = el('g', { transform: 'translate(' + (pos[0] + off) + ',' + (pos[1] - off) + ')', 'pointer-events': 'none' }, layers.tokens);
+        if (flashId === pl.id) { const ring = el('circle', { r: 16, fill: 'none', stroke: col, 'stroke-width': 6 }, tg); ring.classList.add('ring'); }
+        el('circle', { r: 16, fill: col, stroke: pl.id === g.turn ? '#000' : '#fff', 'stroke-width': pl.id === g.turn ? 4 : 2.5 }, tg);
+        const t = el('text', { 'text-anchor': 'middle', y: 6, 'font-size': 18, 'font-weight': 800, fill: '#fff', 'font-family': 'sans-serif' }, tg); t.textContent = (pl.name[0] || '?').toUpperCase();
       }
-      if (pl.dest) { // everyone's destination stays visible: a ring and the player's letter
+      if (pl.dest) { // the player's letter next to their destination
         const dc = P.city[pl.dest], dn = (seen['d' + pl.dest] = (seen['d' + pl.dest] || 0) + 1);
-        el('circle', { cx: dc.x, cy: dc.y, r: 16 + dn * 9, fill: 'none', stroke: '#fff', 'stroke-width': 11, opacity: 0.85 }, layers.route);
-        el('circle', { cx: dc.x, cy: dc.y, r: 16 + dn * 9, fill: 'none', stroke: col, 'stroke-width': 7 }, layers.route);
-        if (pl.origin && pl.origin !== pl.dest) { // where this trip started: a dashed thick ring
-          const oc = P.city[pl.origin], on = (seen['o' + pl.origin] = (seen['o' + pl.origin] || 0) + 1);
-          el('circle', { cx: oc.x, cy: oc.y, r: 14 + on * 8, fill: 'none', stroke: '#fff', 'stroke-width': 10, opacity: 0.8 }, layers.route);
-          el('circle', { cx: oc.x, cy: oc.y, r: 14 + on * 8, fill: 'none', stroke: col, 'stroke-width': 6, 'stroke-dasharray': '9 5' }, layers.route);
-        }
-        const bg = el('g', { transform: 'translate(' + (dc.x + 24 + (dn - 1) * 16) + ',' + (dc.y + 28) + ')' }, layers.route);
-        el('circle', { r: 8, fill: col, stroke: '#fff', 'stroke-width': 1.5 }, bg); const bt = el('text', { 'text-anchor': 'middle', y: 4, 'font-size': 11, 'font-weight': 800, fill: '#fff' }, bg); bt.textContent = (pl.name[0] || '?').toUpperCase();
+        const bg = el('g', { transform: 'translate(' + (dc.x + 26 + (dn - 1) * 18) + ',' + (dc.y + 30) + ')' }, layers.route);
+        el('circle', { r: 9, fill: col, stroke: '#fff', 'stroke-width': 1.5 }, bg); const bt = el('text', { 'text-anchor': 'middle', y: 4, 'font-size': 12, 'font-weight': 800, fill: '#fff' }, bg); bt.textContent = (pl.name[0] || '?').toUpperCase();
       }
       if (prefs.homes !== false) { // home city: a triangle in the player's colour
         const hm = P.city[pl.home], hn = (seen['h' + pl.home] = (seen['h' + pl.home] || 0) + 1), ox = (hn - 1) * 19, top = hm.y + hm.s / 2 + 1;
@@ -189,7 +204,7 @@
   }
   /* ---------- side panels ---------- */
   const money = B.money;
-  function dieHtml(v, red) { return '<span class="die' + (red ? ' red' : '') + '">' + FACE[v] + '</span>'; }
+  function dieHtml(v, red) { return '<span class="gd' + (red ? ' red' : '') + '">' + FACE[v] + '</span>'; }
   function rollLine(d, label) {
     const dice = d.manual ? '' : dieHtml(d.col, true) + dieHtml(d.w1) + dieHtml(d.w2);
     return '<div>' + label + ' ' + dice + ' <span class="sum">' + d.parity + ' column, white ' + d.sum + ' &rarr; <b>' + esc(d.kind === 'city' ? d.city : d.region) + '</b></span></div>';
@@ -211,23 +226,21 @@
     return dice + ' <span class="sum">' + d.parity + ' column, white ' + d.sum + ' &rarr; <b>' + esc(d.kind === 'city' ? d.city : d.region) + '</b></span>';
   }
   function playersHtml() {
-    return g.players.map(p => {
-      const rails = M.rails.filter(r => g.owner[r.code] === p.id);
+    return '<table class="sb"><tr><th>Player</th><th>Cash</th><th>Home</th><th>From &rarr; To</th></tr>' + g.players.map(p => {
+      const col = COLORS[p.id % COLORS.length], nrail = M.rails.filter(r => g.owner[r.code] === p.id).length;
       const left = p.dest ? p.path.slice(p.h).reduce((s, st) => s + st.dots, 0) - p.dd : 0;
-      return '<div class="pl' + (p.id === g.turn && g.phase !== 'over' ? ' on' : '') + '" style="border-left-color:' + COLORS[p.id % COLORS.length] + '">' +
-        '<div class="pl1"><b>' + esc(p.name) + '</b>' + (p.bot ? ' <span class="tag">bot</span>' : '') + (p.sc ? ' <span class="tag sc" title="Express: after an arrival, a new destination and one extra die the same turn">SC</span>' : '') + (p.goingHome ? ' <span class="tag home">going home</span>' : '') +
-        '<span class="cash' + (p.cash < 0 ? ' neg' : '') + '">' + money(p.cash) + '</span></div>' +
-        '<div class="pl2">' + (p.home ? 'Home ' + esc(p.home) + ' &middot; at ' + esc(p.loc) : 'waiting for a home city') + (p.dest ? ' &rarr; <b>' + esc(p.dest) + '</b> (' + left + ' dots)' : '') + '</div>' +
-        '<div class="pl3">' + (rails.length ? rails.map(r => '<span class="rc" style="border-color:' + r.color + '">' + r.code + '</span>').join('') : '<span class="muted">no rails</span>') + ' <span class="muted">trips ' + p.trips + '</span></div></div>';
-    }).join('');
+      const trip = p.dest ? esc(p.origin || p.loc) + ' &rarr; <b>' + esc(p.dest) + '</b> <span class="muted">' + left + '</span>' : (p.home ? '<span class="muted">at ' + esc(p.loc) + '</span>' : '');
+      return '<tr class="' + (p.id === g.turn && g.phase !== 'over' ? 'on' : '') + '" style="--pc:' + col + '"><td class="nm"><span class="dot" style="background:' + col + '"></span><b>' + esc(p.name) + '</b>' + (p.bot ? ' <span class="tag">bot</span>' : '') + (p.sc ? ' <span class="tag sc" title="Orient Express: after an arrival, a new destination and one extra die the same turn">OE</span>' : '') + (p.goingHome ? ' <span class="tag home">home!</span>' : '') + '<div class="muted">' + nrail + ' rail' + (nrail === 1 ? '' : 's') + ' &middot; ' + p.trips + ' trips</div></td>' +
+        '<td class="cs' + (p.cash < 0 ? ' neg' : '') + '">' + money(p.cash) + '</td><td>' + (p.home ? esc(p.home) : '&hellip;') + '</td><td>' + trip + '</td></tr>';
+    }).join('') + '</table>';
   }
   function routeBox(p) {
     const modes = [['fast', 'Fastest'], ['balanced', 'Balanced'], ['cheap', 'Fewest fees']];
-    const infos = modes.map(m => ({ m, i: B.routeInfo(g, p.id, m[0]) }));
-    const cur = B.routeInfo(g, p.id);
-    return '<div class="routebox"><div class="muted"><b>Pick your path:</b> click cities on the map to steer the route through them (click again to remove).' + ((p.via || []).length ? '</div><div>' + p.via.map(c => '<span class="rc via" data-act="rmvia" data-c="' + esc(c) + '">via ' + esc(c) + ' &#10005;</span>').join(' ') + ' <button class="b" data-act="clearvia">Clear</button></div><div class="muted">' : '') + ' Route (yellow on the map). Fees are charged once a turn: ' + money(M.cfg.feePublic) + ' for public rails, ' + money(M.cfg.feePrivate) + ' per owner (' + money(M.cfg.feeAllSold) + ' once all rails are sold).</div>' +
-      infos.map(x => '<label class="rm"><input type="radio" name="rm" value="' + x.m[0] + '"' + (x.m[0] === routeMode ? ' checked' : '') + '> ' + x.m[1] + ' <span class="muted">' + x.i.dots + ' dots, next turn fees about ' + money(x.i.nextTurnFees) + '</span></label>').join('') +
-      '<div class="muted">Chosen route: ' + cur.dots + ' dots on ' + (cur.rails.length ? cur.rails.map(r => '<span class="rc" style="border-color:' + P.rail[r].color + '">' + r + (g.owner[r] === undefined ? '' : ' (' + esc(g.players[g.owner[r]].name) + ')') + '</span>').join(' ') : 'free track') + '</div></div>';
+    const infos = modes.map(m => ({ m, i: B.routeInfo(g, p.id, m[0]) })), cur = B.routeInfo(g, p.id);
+    return '<div class="routebox"><div class="rmrow">' + infos.map(x => '<label class="rm' + (x.m[0] === routeMode ? ' sel' : '') + '"><input type="radio" name="rm" value="' + x.m[0] + '"' + (x.m[0] === routeMode ? ' checked' : '') + '><b>' + x.m[1] + '</b><span class="muted">' + x.i.dots + ' dots &middot; ~' + money(x.i.nextTurnFees) + '</span></label>').join('') + '</div>' +
+      '<div class="muted">Your path (yellow): ' + cur.dots + ' dots on ' + (cur.rails.length ? cur.rails.map(r => '<span class="rc" style="border-color:' + P.rail[r].color + '">' + r + (g.owner[r] === undefined ? '' : ' ' + esc(g.players[g.owner[r]].name)) + '</span>').join('') : 'free track') + '</div>' +
+      ((p.via || []).length ? '<div>' + p.via.map(c => '<span class="rc via" data-act="rmvia" data-c="' + esc(c) + '">via ' + esc(c) + ' &#10005;</span>').join(' ') + ' <button class="b sm" data-act="clearvia">Clear</button></div>' : '') +
+      '<div class="muted">Tap cities on the map to steer through them. Fees once a turn: ' + money(M.cfg.feePublic) + ' public, ' + money(M.cfg.feePrivate) + ' per owner (' + money(M.cfg.feeAllSold) + ' once all are sold).</div></div>';
   }
   function manualForm(kind) {
     return '<div class="manual"><span class="muted">Dice by hand:</span> <select id="mpar"><option value="odd">odd</option><option value="even">even</option></select> colour die &middot; white sum <select id="msum">' +
@@ -252,13 +265,13 @@
     else if (g.phase === 'home') h += '<div>Roll for your home city (region, then city).</div><button class="b pri big" data-act="rollhome">&#127922; Roll for home city (' + esc(p.name) + ')</button>';
     else if (g.phase === 'dest') {
       if (g.stage === 'declare') h += '<div class="win">You have ' + money(p.cash) + '. You may <b>declare for home</b> (' + esc(p.home) + ') or keep rolling destinations if it looks risky. Any player who crosses your spot (a pip or a city) on their move catches you, and nobody can turn back on a track: you pay them ' + money(M.cfg.catchFee) + ' and must run a new destination.</div><button class="b pri big" data-act="declare">&#127968; Declare: head for ' + esc(p.home) + '</button><button class="b big" data-act="rolldest">&#127922; Not yet: roll a destination instead</button>';
-      if (g.stage === 'region') h += '<button class="b pri big" data-act="rollregion">&#127922; Roll 1 of 2: destination region</button>' + (prefs.manual ? manualForm('region') : '');
+      if (g.stage === 'region') h += '<button class="b pri big dicebtn" data-act="rollregion">&#127922; Roll 1 of 2: destination region</button>' + (prefs.manual ? manualForm('region') : '');
       if (g.stage === 'pick') h += '<div>You rolled your own region. Choose any region:</div><div class="chips">' + M.regions.filter(r => r.name !== B.regionOf(p.loc)).map(r => '<button class="b chip" style="border-color:' + r.line + '" data-act="pick" data-r="' + esc(r.name) + '">' + esc(r.name) + '</button>').join('') + '</div>';
-      if (g.stage === 'city') h += '<button class="b pri big" data-act="rollcity">&#127922; Roll 2 of 2: city in ' + esc(g.region) + (P.regionCities[g.region] && P.regionCities[g.region].length === 1 ? ' (only one city)' : '') + '</button>' + (prefs.manual ? manualForm('city') : '');
+      if (g.stage === 'city') h += '<button class="b pri big dicebtn" data-act="rollcity">&#127922; Roll 2 of 2: city in ' + esc(g.region) + (P.regionCities[g.region] && P.regionCities[g.region].length === 1 ? ' (only one city)' : '') + '</button>' + (prefs.manual ? manualForm('city') : '');
     } else if (g.phase === 'route') {
       const left = p.path.slice(p.h).reduce((s, st) => s + st.dots, 0) - p.dd;
-      h += '<div>Destination <b>' + esc(p.dest) + '</b> &middot; ' + left + ' dots left &middot; pays ' + money(B.payoff(p.origin, p.dest)) + '</div>' + routeBox(p) +
-        '<button class="b pri big" data-act="rollmove">&#127922; Roll to move (' + (g.bonus ? '1 die, Express' : '2 dice') + ')</button>' + (prefs.manual ? '<div class="manual"><span class="muted">Dots by hand:</span> <input id="mdots" type="number" min="1" max="18" value="7"> <button class="b" data-act="mmove">Use</button></div>' : '');
+      h += '<button class="b pri big dicebtn" data-act="rollmove">&#127922; Roll to move (' + (g.bonus ? '1 die, Orient Express' : '2 dice') + ')</button>' + (prefs.manual ? '<div class="manual"><span class="muted">Dots by hand:</span> <input id="mdots" type="number" min="1" max="18" value="7"> <button class="b" data-act="mmove">Use</button></div>' : '') +
+        '<div class="trip">To <b>' + esc(p.dest) + '</b> &middot; ' + left + ' dots left &middot; pays ' + money(B.payoff(p.origin, p.dest)) + '</div>' + routeBox(p);
     } else if (g.phase === 'walk' && g.walk) {
       const w = g.walk, fe = B.walkFees(g);
       h += '<div class="walk"><span class="rem">' + w.rem + '</span> of ' + w.n + ' dots left. Tap any pip along a track to jump straight to it (the big pulsing one is the furthest you can go); yellow is your planned route.' + (w.arrived ? ' <b>You are in ' + esc(p.dest) + '!</b>' : '') + '</div>' +
@@ -266,8 +279,8 @@
         '<div class="row"><button class="b" data-act="undo"' + (w.segs.length ? '' : ' disabled') + '>Undo a pip</button> <button class="b" data-act="autowalk"' + (w.done ? ' disabled' : '') + '>Fill the rest along the route</button></div>' +
         '<button class="b pri big" data-act="finish"' + (w.done ? '' : ' disabled') + '>Finish move</button>';
     } else if (g.phase === 'buy') {
-      h += '<div class="arr">' + esc(g.log[g.log.length - 1] ? '' : '') + 'Arrived. ' + (g.bought ? 'You have made your one purchase this turn.' : 'You may make one purchase this turn: a rail from the list below' + (g.cfg.superChief > 0 && !p.sc ? ' or the Express' : '') + '.') + (p.scNew ? ' The Express bonus starts next turn.' : '') + '</div>' +
-        '<div class="row">' + (B.canBuyChief(g, p.id) ? '<button class="b" data-act="chief">Buy Express ' + money(g.cfg.superChief) + '</button> ' : '') + (B.canBonus(g) ? '<button class="b pri big" data-act="bonus">&#127922; ' + (p.sc ? 'Express' : 'Double six') + ': roll a new destination + one die</button>' : '') + '<button class="b' + (B.canBonus(g) ? '' : ' pri') + ' big" data-act="end">End turn</button></div>';
+      h += '<div class="arr">' + esc(g.log[g.log.length - 1] ? '' : '') + 'Arrived. ' + (g.bought ? 'You have made your one purchase this turn.' : 'You may make one purchase this turn: a rail from the list below' + (g.cfg.superChief > 0 && !p.sc ? ' or the Orient Express' : '') + '.') + (p.scNew ? ' The Orient Express bonus starts next turn.' : '') + '</div>' +
+        '<div class="row">' + (B.canBuyChief(g, p.id) ? '<button class="b" data-act="chief">Buy Orient Express ' + money(g.cfg.superChief) + '</button> ' : '') + (B.canBonus(g) ? '<button class="b pri big" data-act="bonus">&#127922; ' + (p.sc ? 'Orient Express' : 'Double six') + ': roll a new destination + one die</button>' : '') + '<button class="b' + (B.canBonus(g) ? '' : ' pri') + ' big" data-act="end">End turn</button></div>';
     }
     return h;
   }
@@ -329,7 +342,7 @@
   }
   function render() {
     if (!g) return;
-    const pb = $('pipbox'); if (g.phase === 'walk' && g.walk) { pb.hidden = false; pb.innerHTML = '<b>' + g.walk.rem + '</b><span>pip' + (g.walk.rem === 1 ? '' : 's') + ' left of ' + g.walk.n + (g.bonus ? ' (Express die)' : '') + '</span>'; } else pb.hidden = true;
+    const pb = $('pipbox'); if (g.phase === 'walk' && g.walk) { pb.hidden = false; pb.innerHTML = '<b>' + g.walk.rem + '</b><span>pip' + (g.walk.rem === 1 ? '' : 's') + ' left of ' + g.walk.n + (g.bonus ? ' (Orient Express die)' : '') + '</span>'; } else pb.hidden = true;
     $('round').textContent = 'Round ' + g.round;
     $('cash').innerHTML = g.players.map(p => '<div class="cc' + (p.id === g.turn && g.phase !== 'over' ? ' on' : '') + '" style="border-color:' + COLORS[p.id % COLORS.length] + '"><b>' + esc(p.name) + '</b><span class="' + (p.cash < 0 ? 'neg' : '') + '">' + money(p.cash) + '</span></div>').join('');
     $('players').innerHTML = playersHtml(); $('actions').innerHTML = actionsHtml(); $('dicebox').innerHTML = diceHtml(); $('rails').innerHTML = railsHtml(); $('log').innerHTML = logHtml(); renderTip();
@@ -353,10 +366,62 @@
     introUntil = performance.now() + 1700;
     animateView(vbFull, 450, () => setTimeout(() => animateView(viewAround(pos, vbFull.w * 0.45), 650), 600));
   }
+  /* ---------- the 3D dice overlay (dice3d.js from the jamb game) and the map flashes ---------- */
+  function rollFx(items, done, quick) {
+    const ov = $('rollov'), box = $('rdice'); let i = 0, ended = false, tm = 0;
+    const end = () => { if (ended) return; ended = true; clearTimeout(tm); ov.hidden = true; ov.onclick = null; done && done(); };
+    const next = () => {
+      clearTimeout(tm); if (i >= items.length) { end(); return; }
+      const it = items[i++]; ov.hidden = false; $('rt1').textContent = it.title; $('rt2').textContent = ' '; box.innerHTML = '';
+      if (window.Dice3D) window.Dice3D.sync(box, it.vals, { anim: it.vals.map(() => true), mode: quick ? 'quick' : 'full' });
+      [].forEach.call(box.children, (d, k) => { const red = it.red && k === 0; d.style.setProperty('--die', red ? '#c0392b' : '#fffaf0'); d.style.setProperty('--pip', red ? '#fff' : '#25221c'); });
+      tm = setTimeout(() => { $('rt2').textContent = it.text; tm = setTimeout(next, quick ? 700 : 1300); }, quick ? 800 : 3000);
+    };
+    ov.onclick = next; next();
+  }
+  function fxItems(kind, who) {
+    const dd = (dc, label) => (!dc || dc.manual || !dc.col) ? null : { vals: [dc.col, dc.w1, dc.w2], red: true, title: who + ': ' + label, text: dc.parity + ' die, white ' + dc.sum + ' → ' + (dc.kind === 'city' ? dc.city : dc.region) };
+    let out = [];
+    if (kind === 'region') out = [dd(g.destRolls && g.destRolls.region, 'destination region')];
+    else if (kind === 'city') out = [dd(g.destRolls && g.destRolls.city, 'destination city')];
+    else if (kind === 'home') { const l = g.lastHome; out = l ? [dd(l.region, 'home region'), dd(l.city, 'home city')] : []; }
+    else if (kind === 'order') { const d = g.dice; if (d && d.rolls) out = [{ vals: d.rolls, title: who + ' rolls for turn order', text: '= ' + d.sum }]; }
+    else if (kind === 'move') { const d = g.dice; if (d && d.rolls && d.rolls.length) out = [{ vals: d.rolls, title: who + ' rolls to move', text: '= ' + d.sum + ' pips' + (g.dbl6 ? ' — DOUBLE SIX!' : '') }]; }
+    return out.filter(Boolean);
+  }
+  let fxTimer = 0;
+  function flashRegion(name) {
+    const i = M.regions.findIndex(r => r.name === name); if (i < 0) return;
+    layers.fx.innerHTML = ''; const grp = el('g', { fill: M.regions[i].line, class: 'fxf' }, layers.fx);
+    M.land.filter(l => l.r === i).forEach(l => el('path', { d: l.d }, grp));
+    clearTimeout(fxTimer); fxTimer = setTimeout(() => { layers.fx.innerHTML = ''; }, 3200); introUntil = performance.now() + (prefs.speed <= 120 ? 0 : 2600);
+  }
+  function flashCity(name, col) {
+    const c = P.city[name]; if (!c) return; layers.fx.innerHTML = '';
+    const grp = el('g', { class: 'fxf' }, layers.fx); el('circle', { cx: c.x, cy: c.y, r: 74, fill: '#fff' }, grp); el('circle', { cx: c.x, cy: c.y, r: 64, fill: col }, grp);
+    clearTimeout(fxTimer); fxTimer = setTimeout(() => { layers.fx.innerHTML = ''; }, 3200); introUntil = performance.now() + (prefs.speed <= 120 ? 0 : 2600);
+  }
+  function flashFor(kind, id) {
+    const col = COLORS[id % COLORS.length];
+    if (kind === 'region' && g.destRolls && g.destRolls.region) flashRegion(g.destRolls.region.region);
+    else if (kind === 'city') { const p = g.players[id]; if (p && p.dest) flashCity(p.dest, col); }
+    else if (kind === 'home' && g.lastHome) flashCity(g.lastHome.home, col);
+  }
+  function playFx(kind, who, id, quick) {
+    const items = (prefs.manual || (quick && prefs.speed <= 120)) ? [] : fxItems(kind, who); anim = { fx: 1 };
+    const finish = () => { anim = null; flashFor(kind, id); afterAction(); };
+    if (!items.length) { finish(); return; }
+    rollFx(items, finish, quick);
+  }
   function scheduleBot() {
     clearTimeout(botTimer); if (!g || g.phase === 'over' || paused) return;
     const p = B.cur(g); if (!p.bot) return;
-    botTimer = setTimeout(() => { const q = B.cur(g); if (g.phase === 'route' && q.bot) botMoveAnim(q); else { B.botAct(g); afterAction(); } }, prefs.speed + Math.max(0, introUntil - performance.now()));
+    botTimer = setTimeout(() => {
+      const q = B.cur(g), id = q.id, who = q.name;
+      if (g.phase === 'route' && q.bot) { botMoveAnim(q); return; }
+      const r = B.botAct(g), kind = ({ 'rolls the destination': 'region', 'rolls the city': 'city', 'rolls for turn order': 'order', 'rolls for a home city': 'home' })[r];
+      if (kind) playFx(kind, who, id, prefs.speed <= 650); else afterAction();
+    }, prefs.speed + Math.max(0, introUntil - performance.now()));
   }
   /* a bot's move: zoom to the whole map, ring where it starts, then walk it pip by pip while the roll counts down */
   function botMoveAnim(p) {
@@ -369,34 +434,34 @@
     while (rem > 0 && h < snap.path.length) { const st = snap.path[h], take = Math.min(rem, st.dots - dd); for (let k = 1; k <= take; k++) pts.push(posAt(st, dd + k)); dd += take; rem -= take; if (dd >= st.dots) { h++; dd = 0; } }
     const dice = rolls.map(v => FACE[v]).join(' '), fast = prefs.speed <= 120, stepMs = fast ? 70 : prefs.speed >= 1300 ? 500 : 320, holdMs = fast ? 250 : 1200;
     anim = { id: p.id }; animHide = p.id; clearTimeout(flashTimer); flashId = -1; closeTip();
-    const pb = $('pipbox'); pb.hidden = false; updateMap();
+    const pb = $('pipbox'); pb.hidden = true; updateMap();
+    el('circle', { cx: start[0], cy: start[1], r: 27, fill: '#fff', opacity: 0.8 }, layers.mark); el('circle', { cx: start[0], cy: start[1], r: 23, fill: col, opacity: 0.5 }, layers.mark);
+    if (snap.dest && mv.arrived) { const dc = P.city[snap.dest]; el('circle', { cx: dc.x, cy: dc.y, r: 30, fill: '#fff' }, layers.mark); el('circle', { cx: dc.x, cy: dc.y, r: 26, fill: col }, layers.mark); }
     const draw = (i) => {
       layers.anim.innerHTML = '';
-      if (snap.dest && mv.arrived) { const dc = P.city[snap.dest]; el('circle', { cx: dc.x, cy: dc.y, r: 24, fill: 'none', stroke: '#fff', 'stroke-width': 11 }, layers.anim); el('circle', { cx: dc.x, cy: dc.y, r: 24, fill: 'none', stroke: col, 'stroke-width': 7 }, layers.anim); }
-      const sr = el('circle', { cx: start[0], cy: start[1], r: 22, fill: 'none', stroke: col, 'stroke-width': 6, 'stroke-dasharray': '9 5' }, layers.anim); if (i === 0) sr.classList.add('ring');
+      if (i === 0) { const sr = el('circle', { cx: start[0], cy: start[1], r: 22, fill: 'none', stroke: col, 'stroke-width': 6 }, layers.anim); sr.classList.add('ring'); }
       const trail = [start].concat(pts.slice(0, i)); if (trail.length > 1) el('polyline', { points: trail.map(q => q.join(',')).join(' '), fill: 'none', stroke: col, 'stroke-width': 10, opacity: 0.85, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, layers.anim);
       pts.slice(0, i).forEach(q => el('circle', { cx: q[0], cy: q[1], r: 4, fill: '#fff', stroke: col, 'stroke-width': 2 }, layers.anim));
-      const pos = i ? pts[i - 1] : start, tg = el('g', { transform: 'translate(' + pos[0] + ',' + (pos[1] - 22) + ')' }, layers.anim);
-      el('circle', { r: 14, fill: col, stroke: '#000', 'stroke-width': 3.5 }, tg); const tx = el('text', { 'text-anchor': 'middle', y: 5, 'font-size': 15, 'font-weight': 800, fill: '#fff' }, tg); tx.textContent = (snap.name[0] || '?').toUpperCase(); const nm2 = el('text', { 'text-anchor': 'middle', y: -21, 'font-size': 21, 'font-weight': 800, fill: col, stroke: '#fff', 'stroke-width': 5, 'paint-order': 'stroke', 'font-family': 'sans-serif' }, tg); nm2.textContent = snap.name;
+      const pos = i ? pts[i - 1] : start, tg = el('g', { transform: 'translate(' + pos[0] + ',' + pos[1] + ')', 'pointer-events': 'none' }, layers.anim);
+      el('circle', { r: 17, fill: col, stroke: '#000', 'stroke-width': 4 }, tg); const tx = el('text', { 'text-anchor': 'middle', y: 6, 'font-size': 19, 'font-weight': 800, fill: '#fff', 'font-family': 'sans-serif' }, tg); tx.textContent = (snap.name[0] || '?').toUpperCase();
       const left = mv.rolled - i; pb.innerHTML = '<span>' + esc(snap.name) + ' rolled ' + dice + ' = ' + mv.rolled + (g.dbl6 && !g.bonus ? ' DOUBLE SIX' : '') + '</span><b>' + left + '</b><span>pip' + (left === 1 ? '' : 's') + ' left' + (i === pts.length && left > 0 ? ' (lost on arrival)' : '') + '</span>';
     };
     const finish = () => { anim = null; animHide = -1; layers.anim.innerHTML = ''; afterAction(); };
-    draw(0);
-    let i = 0; const tick = () => { if (i >= pts.length) { setTimeout(finish, fast ? 150 : 800); return; } i++; draw(i); setTimeout(tick, stepMs); };
-    setTimeout(tick, holdMs);
+    const go = () => { pb.hidden = false; draw(0); let i = 0; const tick = () => { if (i >= pts.length) { setTimeout(finish, fast ? 150 : 800); return; } i++; draw(i); setTimeout(tick, stepMs); }; setTimeout(tick, holdMs); };
+    if (rolls.length && !prefs.manual && prefs.speed > 120) rollFx([{ vals: rolls, title: snap.name + ' rolls to move', text: '= ' + mv.rolled + ' pips' + (g.dbl6 && !g.bonus ? ' — DOUBLE SIX!' : '') }], go, prefs.speed <= 650); else go();
   }
   function act(a, el) {
-    if (!g || anim) return; const p = B.cur(g);
-    if (a === 'rollorder') { B.rollOrder(g); }
-    else if (a === 'rollhome') { B.rollHomeStep(g); }
-    else if (a === 'rollregion') { B.rollRegion(g); }
+    if (!g || anim) return; const p = B.cur(g), who = p.name, whoId = p.id; let fx = null;
+    if (a === 'rollorder') { B.rollOrder(g); fx = 'order'; }
+    else if (a === 'rollhome') { B.rollHomeStep(g); fx = 'home'; }
+    else if (a === 'rollregion') { B.rollRegion(g); fx = 'region'; }
     else if (a === 'pick') { B.pickRegion(g, el.dataset.r); }
     else if (a === 'rolldest') { B.skipDeclare(g); }
     else if (a === 'declare') { B.declareHome(g); routeMode = 'balanced'; }
     else if (a === 'bonus') { B.startBonus(g); }
     else if (a === 'pipbtn') { B.stepWalk(g, +el.dataset.i); }
-    else if (a === 'rollcity') { B.rollCity(g); routeMode = 'balanced'; }
-    else if (a === 'rollmove') { if (prefs.step) B.rollMoveStep(g); else B.rollMove(g); }
+    else if (a === 'rollcity') { B.rollCity(g); routeMode = 'balanced'; fx = 'city'; }
+    else if (a === 'rollmove') { if (prefs.step) B.rollMoveStep(g); else B.rollMove(g); fx = 'move'; }
     else if (a === 'undo') { B.undoWalk(g); }
     else if (a === 'autowalk') { B.autoWalk(g); }
     else if (a === 'finish') { B.commitWalk(g); }
@@ -412,7 +477,8 @@
     else if (a === 'skip') { for (let i = 0; i < 400 && g.phase !== 'over' && B.cur(g).bot; i++) B.botAct(g); }
     else if (a === 'export') { download('iron-meridian-game.json', JSON.stringify(B.exportLog(g), null, 1)); return; }
     else if (a === 'new') { openSetup(); return; }
-    afterAction(a === 'end' || a === 'skip');
+    if (fx && !prefs.manual) { playFx(fx, who, whoId, false); return; }
+    afterAction();
   }
   function download(name, text) { const b = new Blob([text], { type: 'application/json' }), u = URL.createObjectURL(b), a = document.createElement('a'); a.href = u; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(u), 1000); }
 
@@ -425,7 +491,9 @@
     if (e.target.name === 'rm' && g) { routeMode = e.target.value; g.routeMode = routeMode; B.setRoute(g, routeMode); render(); }
     if (e.target.id === 'hm') { prefs.homes = e.target.checked; savePrefs(); updateMap(); }
     if (e.target.id === 'stp') { prefs.step = e.target.checked; savePrefs(); }
-    if (e.target.id === 'tg') { prefs.tags = e.target.checked; layers.tags.style.display = prefs.tags ? '' : 'none'; savePrefs(); }
+    if (e.target.id === 'tg') { prefs.tags = e.target.checked; drawTags(); savePrefs(); }
+    if (e.target.id === 'crd') { prefs.cards = e.target.checked; drawTags(); savePrefs(); }
+    if (e.target.id === 'tgt') { prefs.tight = e.target.checked; applyTight(); savePrefs(); }
     if (e.target.id === 'spd') { prefs.speed = +e.target.value; savePrefs(); }
     if (e.target.id === 'fol') { prefs.follow = e.target.checked; savePrefs(); }
     if (e.target.id === 'man') { prefs.manual = e.target.checked; savePrefs(); render(); }
@@ -433,6 +501,7 @@
   $('zin').onclick = () => zoomAt(1 / 1.3, vb.x + vb.w / 2, vb.y + vb.h / 2);
   $('zout').onclick = () => zoomAt(1.3, vb.x + vb.w / 2, vb.y + vb.h / 2);
   $('zall').onclick = () => { vb = Object.assign({}, vbFull); applyView(); };
+  $('ztight').onclick = () => { prefs.tight = !prefs.tight; $('tgt').checked = prefs.tight; applyTight(); savePrefs(); };
   $('znow').onclick = () => { if (g) focus(B.tokenPos(g, B.cur(g)), vbFull.w * 0.45); };
 
   /* ---------- setup, rules, save ---------- */
@@ -442,7 +511,7 @@
     d.innerHTML = '<h2>New game</h2><div class="presets"><button class="b" data-pre="1">You vs 1 bot</button><button class="b" data-pre="2">You vs 2 bots</button><button class="b" data-pre="3">3 people, one device</button><button class="b" data-pre="4">Watch 3 bots</button></div>' +
       '<div id="prow"></div><div class="grid"><label>Players <select id="np">' + [2, 3, 4, 5, 6].map(n => '<option' + (n === 3 ? ' selected' : '') + '>' + n + '</option>').join('') + '</select></label>' +
       '<label>Start cash ($K) <input id="cs" type="number" value="' + M.cfg.start / 1000 + '"></label><label>Win cash ($K) <input id="cw" type="number" value="' + M.cfg.win / 1000 + '"></label>' +
-      '<label>Express ($K, 0 = none) <input id="cc" type="number" value="' + M.cfg.superChief / 1000 + '"></label><label>Seed (blank = random) <input id="sd" type="text" placeholder="e.g. 42"></label></div>' +
+      '<label>Orient Express ($K, 0 = none) <input id="cc" type="number" value="' + M.cfg.superChief / 1000 + '"></label><label>Seed (blank = random) <input id="sd" type="text" placeholder="e.g. 42"></label></div>' +
       '<div class="row"><button class="b pri" id="go">Start</button> <button class="b" id="cancel">Cancel</button>' + (saved ? ' <button class="b" id="resume">Resume saved game</button>' : '') + ' <label class="ld">Load game file <input type="file" id="lf" accept=".json"></label></div>';
     const rows = () => { const n = +$('np').value, pr = $('prow'); const old = [...pr.querySelectorAll('.pr')].map(r => [r.querySelector('input').value, r.querySelector('select').value]); pr.innerHTML = ''; for (let i = 0; i < n; i++) { const o = old[i] || [NAMES[i], i === 0 ? 'human' : 'bot']; pr.insertAdjacentHTML('beforeend', '<div class="pr"><span class="dot" style="background:' + COLORS[i] + '"></span><input value="' + esc(o[0]) + '"> <select><option value="human"' + (o[1] === 'human' ? ' selected' : '') + '>person</option><option value="bot"' + (o[1] === 'bot' ? ' selected' : '') + '>bot</option></select></div>'); } };
     rows(); $('np').onchange = rows;
@@ -462,17 +531,17 @@
     d.innerHTML = '<h2>How this playtest works</h2><ul class="rules"><li><b>Goal:</b> collect ' + money(c.win) + ' (editable) at an arrival, then get back to your home city first.</li>' +
       '<li><b>Destination:</b> coloured die odd/even + two white dice pick a region, then a second roll picks the city. Roll your own region and you may choose any region.</li>' +
       '<li><b>Moving:</b> roll 2 dice of dots a turn. Dots left over at arrival are lost. Tap pips to pick your own path; where two tracks cross you may change tracks (you pay the fee of any track you ride).</li>' +
-      '<li><b>Express (' + money(c.superChief) + '):</b> after an arrival you collect, buy, roll a new destination and move one more die the same turn. Fees already paid that turn are not paid again.</li>' +
-      '<li><b>Double six:</b> rolling two sixes on the movement dice gives you the Express bonus for that turn (the bonus die cannot chain).</li>' +
+      '<li><b>Orient Express (' + money(c.superChief) + '):</b> after an arrival you collect, buy, roll a new destination and move one more die the same turn. Fees already paid that turn are not paid again.</li>' +
+      '<li><b>Double six:</b> rolling two sixes on the movement dice gives you the Orient Express bonus for that turn (the bonus die cannot chain).</li>' +
       '<li><b>Start of a game:</b> everyone rolls for turn order, then in that order for a home city; then play begins with a destination roll in that order.</li>' +
-      '<li><b>One purchase</b> per turn: a rail or the Express. An Express you buy starts working next turn.</li>' +
+      '<li><b>One purchase</b> per turn: a rail or the Orient Express. An Orient Express you buy starts working next turn.</li>' +
       '<li><b>Declare:</b> at ' + money(c.win) + ' you may declare for home instead of rolling a destination (or keep rolling if it looks risky). If another player who is not running home crosses your spot (any pip or city) on their own move, you are caught (a runner can cross anyone on their own turn without being caught): you pay them ' + money(c.catchFee) + ' and must run a new destination (paid from where you declared). Being caught is not your turn: you roll a destination on your next turn and must reach it before declaring again. You must stop on your destination when you reach it.</li>' +
       '<li><b>Payoff:</b> $1K per dot of the shortest track route from where your trip started.</li>' +
       '<li><b>Fees, once a turn:</b> ' + money(c.feePublic) + ' to the bank if you use any public rail; ' + money(c.feePrivate) + ' to each owner whose rails you use (' + money(c.feeAllSold) + ' once every rail is sold). Your own rails are free.</li>' +
-      '<li><b>Buying:</b> after each arrival you may buy rails (and the Express). Owned rails glow in the owner&rsquo;s colour.</li>' +
+      '<li><b>Buying:</b> after each arrival you may buy rails (and the Orient Express). Owned rails glow in the owner&rsquo;s colour.</li>' +
       '<li><b>Short of cash:</b> rails are sold back to the bank at half price, cheapest first.</li>' +
       '<li><b>Red squares</b> are zapper cities: only one rail serves them.</li>' +
-      '<li><b>Assumed, not from a rule book:</b> leftover dots lost on arrival, Express buyable at any arrival and its extra die only after an arrival, what counts as a catch (the catcher crossing the runner&rsquo;s spot), forced-sale rule, bot behaviour. Tell me what to change.</li>' +
+      '<li><b>Assumed, not from a rule book:</b> leftover dots lost on arrival, Orient Express buyable at any arrival and its extra die only after an arrival, what counts as a catch (the catcher crossing the runner&rsquo;s spot), forced-sale rule, bot behaviour. Tell me what to change.</li>' +
       '<li><b>Dice by hand:</b> tick the box in the toolbar to type in your physical dice instead.</li><li><b>Export</b> at the end saves every trip as JSON for the tracker.</li></ul><p class="muted">Iron Meridian is an independent game inspired by classic railroad dice-and-destination games. It is not affiliated with or endorsed by any publisher. The map, tables, text and names are our own.</p><div class="row"><button class="b pri" id="ok">Close</button></div>';
     $('ok').onclick = () => d.close(); d.showModal();
   }
@@ -483,9 +552,9 @@
   $('hsold').onchange = e => { prefs.hideSold = e.target.checked; savePrefs(); if (g) $('rails').innerHTML = railsHtml(); };
   document.addEventListener('toggle', e => { const d = e.target; if (d.dataset && d.dataset.grp) { prefs.shut = prefs.shut || {}; prefs.shut[d.dataset.grp] = !d.open; savePrefs(); } }, true);
   $('bsave').onclick = () => { if (g) download('iron-meridian-save.json', JSON.stringify(g)); };
-  $('hm').checked = prefs.homes !== false; $('stp').checked = prefs.step !== false; $('tg').checked = prefs.tags !== false; $('spd').value = String(prefs.speed); $('fol').checked = prefs.follow; $('man').checked = prefs.manual;
+  $('hm').checked = prefs.homes !== false; $('stp').checked = prefs.step !== false; $('tg').checked = prefs.tags !== false; $('crd').checked = !!prefs.cards; $('tgt').checked = !!prefs.tight; $('spd').value = String(prefs.speed); $('fol').checked = prefs.follow; $('man').checked = prefs.manual;
 
-  buildMap(); updateMap();
+  buildMap(); if (prefs.tight) applyTight(); updateMap();
   window.baronDebug = { B, get g() { return g; }, set g(v) { g = v; }, render, afterAction, handleMapClick, selectRail, closeTip, turnIntro };
   let saved = null; try { saved = localStorage.getItem(SAVE); } catch (e) { /* none */ }
   if (saved) { try { g = JSON.parse(saved); afterAction(); } catch (e) { openSetup(); } } else { openSetup(); }
