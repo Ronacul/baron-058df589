@@ -8,7 +8,7 @@
   const $ = id => document.getElementById(id);
   const esc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const FACE = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
-  let g = null, prefs = { speed: 650, follow: false, manual: false, tags: true, homes: true, step: true, cards: false, tight: false }, botTimer = null, paused = false, routeMode = 'balanced', hi = null, flashId = -1, animHide = -1, anim = null, tip = null, lastKey = '', introUntil = 0;
+  let g = null, prefs = { speed: 650, follow: false, manual: false, tags: true, homes: true, step: true, cards: false, tight: false }, botTimer = null, paused = false, routeMode = 'balanced', hi = null, flashId = -1, flashIds = [], animHide = -1, anim = null, tip = null, lastKey = '', introUntil = 0;
   try { Object.assign(prefs, JSON.parse(localStorage.getItem(PREF) || '{}')); } catch (e) { /* no storage */ }
   COLORS = PALETTES[prefs.palette] || PALETTES.classic;
   const savePrefs = () => { try { localStorage.setItem(PREF, JSON.stringify(prefs)); } catch (e) { /* ignore */ } };
@@ -255,7 +255,7 @@
       if (pl.id !== animHide) { // the token sits on its pip: a big disc with the player's letter
         const pos = B.tokenPos(g, pl), key = pos.join(','), n = seen[key] = (seen[key] || 0) + 1, off = (n - 1) * 11;
         const tg = el('g', { transform: 'translate(' + (pos[0] + off) + ',' + (pos[1] - off) + ')', 'pointer-events': 'none' }, layers.tokens);
-        if (flashId === pl.id) { const ring = el('circle', { r: 16, fill: 'none', stroke: col, 'stroke-width': 6 }, tg); ring.classList.add('ring'); }
+        if (flashId === pl.id || flashIds.indexOf(pl.id) >= 0) { const ring = el('circle', { r: 16, fill: 'none', stroke: col, 'stroke-width': 6 }, tg); ring.classList.add('ring'); }
         el('circle', { r: 16, fill: col, stroke: pl.id === g.turn ? '#000' : '#fff', 'stroke-width': pl.id === g.turn ? 4 : 2.5 }, tg);
         const t = el('text', { 'text-anchor': 'middle', y: 6, 'font-size': 18, 'font-weight': 800, fill: '#fff', 'font-family': 'sans-serif' }, tg); t.textContent = (pl.name[0] || '?').toUpperCase();
       }
@@ -489,11 +489,24 @@
     e.style.left = (r.left + r.width / 2) + 'px'; e.style.top = (r.bottom + 2) + 'px'; e.style.animationDelay = (((k - 1) % 4) * 0.3) + 's';
     document.body.appendChild(e); setTimeout(() => { e.remove(); floatCount[i] = Math.max(0, (floatCount[i] || 1) - 1); }, 2800);
   }
-  function cashFloats() {
-    if (!g) { prevCash = null; return; }
-    const now = g.players.map(p => p.cash);
-    if (lastG === g && prevCash && prevCash.length === now.length) now.forEach((v, i) => { const d = v - prevCash[i]; if (d) floatMoney(i, d); });
-    prevCash = now;
+  /* money moves: a gold coin with the amount flies from the payer's wallet to the payee's (a public fee, a purchase or a payoff goes to or from the Bank chip) */
+  let seenEv = 0;
+  const walletEl = id => (id < 0 ? $('bank') : document.querySelectorAll('#cash .cc')[id]);
+  function bump(id, kind) { const w = walletEl(id); if (!w) return; w.classList.remove('bump-in', 'bump-out'); void w.offsetWidth; w.classList.add(kind); setTimeout(() => w.classList.remove(kind), 800); }
+  function flyMoney(from, to, amt, delay) {
+    const a = walletEl(from), b = walletEl(to); if (!a || !b) return;
+    const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect(), x0 = ra.left + ra.width / 2, y0 = ra.top + ra.height / 2, x1 = rb.left + rb.width / 2, y1 = rb.top + rb.height / 2;
+    const c = document.createElement('div'); c.className = 'coin ' + (to < 0 ? 'tobank' : (from < 0 ? 'frombank' : 'p2p')); c.innerHTML = '<span>💰</span><b>' + money(amt) + '</b>'; document.body.appendChild(c);
+    const mx = (x0 + x1) / 2, my = Math.max(y0, y1) + 70 + Math.random() * 30, T = (x, y, s) => 'translate(' + x + 'px,' + y + 'px) translate(-50%,-50%) scale(' + s + ')';
+    setTimeout(() => bump(from, 'bump-out'), delay);
+    const an = c.animate([{ transform: T(x0, y0, 0.5), opacity: 0 }, { transform: T(x0, y0 + 14, 1.25), opacity: 1, offset: 0.14 }, { transform: T(mx, my, 1.35), opacity: 1, offset: 0.55 }, { transform: T(x1, y1 + 6, 0.9), opacity: 1, offset: 0.92 }, { transform: T(x1, y1, 0.4), opacity: 0 }], { duration: 1700, delay, easing: 'ease-in-out', fill: 'both' });
+    an.onfinish = () => { c.remove(); bump(to, 'bump-in'); };
+  }
+  function cashFloats() { // fly a coin for every payment made since the last render
+    if (!g) { seenEv = 0; return; }
+    if (lastG !== g) { seenEv = g.evn || 0; return; }
+    const evs = (g.ev || []).filter(e => e.n > seenEv); seenEv = g.evn || seenEv;
+    evs.slice(0, 12).forEach((e, i) => { if (e.amt) flyMoney(e.from, e.to, e.amt, i * 380); });
   }
   let toastTimer = 0;
   function toast(html, ms, color) {
@@ -504,13 +517,26 @@
     if (!big) return; const cols = ['#e6194b', '#ffd400', '#2e9e4f', '#1b6ec2', '#ff8c00', '#8e24aa'];
     for (let i = 0; i < 80; i++) { const c = document.createElement('i'); c.className = 'cf'; c.style.left = Math.random() * 100 + '%'; c.style.background = cols[i % cols.length]; c.style.animationDelay = (Math.random() * 0.6) + 's'; c.style.setProperty('--dx', (Math.random() * 200 - 100) + 'px'); w.appendChild(c); setTimeout(() => c.remove(), 3600); }
   }
+  /* a rail bought into someone's destination: centre-screen taunt, the bought track lights up, and so do the victims' destinations and tokens */
+  function lucanored(k) {
+    const w = $('mapwrap'), col = COLORS[k.buyerId % COLORS.length], b = document.createElement('div'); b.className = 'luc';
+    b.innerHTML = '<div class="lu1">LUCANORED!</div><div class="lu2"><b style="color:' + col + '">' + esc(k.buyer) + '</b> bought <b>' + esc(k.rail) + '</b><br>' + k.victims.map(v => '<b style="color:' + COLORS[v.id % COLORS.length] + '">' + esc(v.name) + '</b> now pays to reach <b>' + esc(v.dest) + '</b>').join('<br>') + '</div>';
+    w.appendChild(b); b.onclick = () => b.remove(); setTimeout(() => b.remove(), 5200);
+    const em = ['😈', '💸', '😜', '💰'];
+    for (let i = 0; i < 36; i++) { const e = document.createElement('i'); e.className = 'em'; e.textContent = em[i % em.length]; e.style.left = (Math.random() * 100) + '%'; e.style.animationDelay = (Math.random() * 0.8) + 's'; e.style.setProperty('--dx', (Math.random() * 160 - 80) + 'px'); w.appendChild(e); setTimeout(() => e.remove(), 4200); }
+    hi = k.rail; flashIds = k.victims.map(v => v.id); updateMap(); if ($('rails')) $('rails').innerHTML = railsHtml();
+    const grp = layers.fx; grp.innerHTML = ''; const fg = el('g', { class: 'fxf' }, grp);
+    k.victims.forEach(v => { const c = P.city[v.dest]; if (!c) return; el('circle', { cx: c.x, cy: c.y, r: 80, fill: '#fff' }, fg); el('circle', { cx: c.x, cy: c.y, r: 70, fill: COLORS[v.id % COLORS.length] }, fg); });
+    clearTimeout(fxTimer); fxTimer = setTimeout(() => { layers.fx.innerHTML = ''; }, 3600);
+    setTimeout(() => { if (hi === k.rail) hi = null; flashIds = []; if (g) { updateMap(); $('rails').innerHTML = railsHtml(); } }, 4800);
+    introUntil = performance.now() + (prefs.speed <= 120 ? 800 : 3000);
+  }
   function announce() { // popups for what just happened: arrivals and a rail bought into someone's destination
     if (!g) return;
-    if (lastG !== g) { lastG = g; seenArrival = g.arrival ? g.arrival.n : 0; seenTaunt = g.taunt ? g.taunt.n : 0; prevCash = g.players.map(p => p.cash); return; }
+    if (lastG !== g) { lastG = g; seenArrival = g.arrival ? g.arrival.n : 0; seenTaunt = g.taunt ? g.taunt.n : 0; seenEv = g.evn || 0; prevCash = g.players.map(p => p.cash); return; }
     if (g.arrival && g.arrival.n !== seenArrival) { seenArrival = g.arrival.n; const a = g.arrival, pl = g.players[a.id], col = COLORS[a.id % COLORS.length];
       toast('<b style="color:' + col + '">' + esc(pl.name) + '</b> arrives in <b>' + esc(a.city) + '</b> &nbsp;<span class="gain">+' + money(a.pays) + '</span>', 2600, col); flashCity(a.city, col); }
-    if (g.taunt && g.taunt.n !== seenTaunt) { seenTaunt = g.taunt.n; const k = g.taunt, col = COLORS[k.buyerId % COLORS.length];
-      setTimeout(() => toast('<div class="lu">LUCANORED!</div><div><b style="color:' + col + '">' + esc(k.buyer) + '</b> just bought <b>' + esc(k.rail) + '</b>. ' + k.victims.map(v => '<b>' + esc(v.name) + '</b> now pays a toll to reach <b>' + esc(v.dest) + '</b>').join('; ') + '.</div>', 4600, col), 900); }
+    if (g.taunt && g.taunt.n !== seenTaunt) { seenTaunt = g.taunt.n; setTimeout(() => lucanored(g.taunt), 500); }
   }
   /* ---------- turn flow ---------- */
   let flashTimer = 0;
@@ -731,7 +757,7 @@
   $('hm').checked = prefs.homes !== false; $('stp').checked = prefs.step !== false; $('tg').checked = prefs.tags !== false; $('crd').checked = !!prefs.cards; $('trl').checked = prefs.trails !== false; $('pln').checked = prefs.plain !== false; $('pal').value = prefs.palette || 'classic'; $('thk').checked = !!prefs.thick; $('tgt').checked = !!prefs.tight; $('spd').value = String(prefs.speed); $('fol').checked = prefs.follow; $('man').checked = prefs.manual;
 
   buildMap(); if (prefs.tight || prefs.cards) applyTight(); updateMap();
-  window.baronDebug = { B, laneOrders, celebrateSix, toast, floatMoney, get g() { return g; }, set g(v) { g = v; }, render, afterAction, handleMapClick, selectRail, closeTip, turnIntro };
+  window.baronDebug = { B, laneOrders, celebrateSix, toast, floatMoney, flyMoney, lucanored, get g() { return g; }, set g(v) { g = v; }, render, afterAction, handleMapClick, selectRail, closeTip, turnIntro };
   let saved = null; try { saved = localStorage.getItem(SAVE); } catch (e) { /* none */ }
   if (saved) { try { g = JSON.parse(saved); afterAction(); } catch (e) { openSetup(); } } else { openSetup(); }
 })();

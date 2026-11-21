@@ -74,6 +74,7 @@
     const allSold = g => Object.keys(g.owner).length === M.rails.length;
     const regionOf = c => P.city[c].r;
     const money = v => (v < 0 ? '-' : '') + M.currency + (Math.abs(v) / M.unit).toLocaleString(undefined, { maximumFractionDigits: 1 }) + 'K';
+    function ev(g, from, to, amt) { g.evn = (g.evn || 0) + 1; (g.ev = g.ev || []).push({ n: g.evn, from, to, amt }); if (g.ev.length > 80) g.ev.shift(); }
     function log(g, text, p) { g.log.push({ round: g.round, p: p === undefined ? -1 : p, t: text }); if (g.log.length > 600) g.log.shift(); }
 
     /* ---------- new game ---------- */
@@ -158,7 +159,7 @@
        pts are the spots the mover passed over this move. Both runners (or neither) running home: nothing happens. */
     const ptAt = (hopId, from, dd) => { const h = M.hops[hopId]; if (dd <= 0) { const c = P.city[from]; return [c.x, c.y]; } if (dd >= h.nd) { const c = P.city[from === h.a ? h.b : h.a]; return [c.x, c.y]; } const q = h.dotpts[(from === h.a ? dd : h.nd - dd) - 1]; return [q[0], q[1]]; };
     function caught(g, r, c) {
-      r.cash -= C.catchFee; c.cash += C.catchFee; r.paid += C.catchFee; c.received += C.catchFee;
+      r.cash -= C.catchFee; c.cash += C.catchFee; r.paid += C.catchFee; c.received += C.catchFee; ev(g, r.id, c.id, C.catchFee);
       const mid = r.path.length && r.dd > 0 && r.h < r.path.length;
       r.goingHome = false; r.legacy = null; r.mustRun = true; r.payFrom = r.declaredFrom || r.loc; r.dest = null; r.origin = null; r.via = [];
       if (mid) { r.path = [r.path[r.h]]; r.h = 0; } else { r.path = []; r.h = 0; r.dd = 0; }
@@ -296,7 +297,7 @@
         const st = p.path[p.h], hop = M.hops[st.hop], take = Math.min(rem, st.dots - p.dd);
         const f = feeFor(g, p.id, hop.rails, g.turnPaid);
         if (f && !f.free) {
-          g.turnPaid[f.key] = 1; p.cash -= f.amount; p.paid += f.amount;
+          g.turnPaid[f.key] = 1; p.cash -= f.amount; p.paid += f.amount; ev(g, p.id, f.payee, f.amount);
           if (f.payee < 0) { p.f1++; notes.push('paid ' + money(f.amount) + ' to the bank (public ' + f.rail + ')'); }
           else {
             const o = g.players[f.payee]; o.cash += f.amount; o.received += f.amount;
@@ -401,7 +402,7 @@
       w.segs.forEach(seg => {
         const hop = M.hops[seg.hop], f = feeFor(g, p.id, hop.rails, g.turnPaid); used += seg.take;
         if (f && !f.free) {
-          g.turnPaid[f.key] = 1; p.cash -= f.amount; p.paid += f.amount;
+          g.turnPaid[f.key] = 1; p.cash -= f.amount; p.paid += f.amount; ev(g, p.id, f.payee, f.amount);
           if (f.payee < 0) { p.f1++; notes.push('paid ' + money(f.amount) + ' to the bank (public ' + f.rail + ')'); }
           else { const o = g.players[f.payee]; o.cash += f.amount; o.received += f.amount; if (allSold(g)) { p.f10++; o.r10++; } else { p.f5++; o.r5++; } notes.push('paid ' + money(f.amount) + ' to ' + o.name + ' (' + f.rail + (f.legacy ? ', legacy price' : '') + ')'); }
         }
@@ -421,7 +422,7 @@
       p.loc = p.dest; const pay = payoff(p.origin, p.dest);
       if (p.goingHome && p.loc === p.home) { win(g, p); return; }
       g.arrival = { n: ((g.arrival && g.arrival.n) || 0) + 1, id: p.id, city: p.dest, pays: pay }; p.legacy = null;
-      p.cash += pay; p.gross += pay; p.trips++; g.trips.push({ p: p.id, from: p.origin, to: p.dest, pays: pay, round: g.round });
+      p.cash += pay; p.gross += pay; p.trips++; ev(g, -1, p.id, pay); g.trips.push({ p: p.id, from: p.origin, to: p.dest, pays: pay, round: g.round });
       log(g, p.name + ' arrives in ' + p.dest + ' from ' + p.origin + ' and collects ' + money(pay) + ' (cash ' + money(p.cash) + ').', p.id);
       p.dest = null; p.origin = null; p.path = []; p.h = 0; p.dd = 0; p.via = []; p.mustRun = false;
       if (p.cash >= g.cfg.win) log(g, p.name + ' has ' + money(p.cash) + ': next time, declare for home (' + p.home + ') to win.', p.id);
@@ -431,7 +432,7 @@
       while (p.cash < 0) {
         const mine = M.rails.filter(r => g.owner[r.code] === p.id).sort((a, b) => a.price - b.price);
         if (!mine.length) break;
-        const r = mine[0]; delete g.owner[r.code]; const v = Math.round(r.price * M.unit / 2); p.cash += v; p.sold++;
+        const r = mine[0]; delete g.owner[r.code]; const v = Math.round(r.price * M.unit / 2); p.cash += v; p.sold++; ev(g, -1, p.id, v);
         log(g, p.name + ' is short of cash and sells ' + r.code + ' to the bank for ' + money(v) + '.', p.id);
       }
     }
@@ -440,7 +441,7 @@
     function canBuy(g, pi, code) { const r = P.rail[code]; return g.phase === 'buy' && !g.bought && g.owner[code] === undefined && g.players[pi].cash >= r.price * M.unit; }
     function buyRail(g, pi, code) {
       if (!canBuy(g, pi, code)) return false;
-      const p = g.players[pi], r = P.rail[code], allBefore = allSold(g); p.cash -= r.price * M.unit; g.owner[code] = pi; g.bought = true;
+      const p = g.players[pi], r = P.rail[code], allBefore = allSold(g); p.cash -= r.price * M.unit; g.owner[code] = pi; g.bought = true; ev(g, pi, -1, r.price * M.unit);
       const onTrack = q => (q.path.length && q.dd > 0 && q.h < q.path.length && M.hops[q.path[q.h].hop].rails.indexOf(code) >= 0) || (q.loc && r.cities.has && r.cities.has(q.loc)) || (q.loc && Array.isArray(r.cities) && r.cities.indexOf(q.loc) >= 0);
       const victims = [];
       g.players.forEach(q => {
@@ -458,7 +459,7 @@
     function canBuyChief(g, pi) { const p = g.players[pi]; return g.phase === 'buy' && !g.bought && !p.sc && g.cfg.superChief > 0 && p.cash >= g.cfg.superChief; }
     function buyChief(g, pi) {
       if (!canBuyChief(g, pi)) return false;
-      const p = g.players[pi]; p.cash -= g.cfg.superChief; p.sc = true; p.scNew = true; g.bought = true; log(g, p.name + ' buys the Orient Express for ' + money(g.cfg.superChief) + ' (its bonus starts next turn).', pi); return true;
+      const p = g.players[pi]; p.cash -= g.cfg.superChief; ev(g, pi, -1, g.cfg.superChief); p.sc = true; p.scNew = true; g.bought = true; log(g, p.name + ' buys the Orient Express for ' + money(g.cfg.superChief) + ' (its bonus starts next turn).', pi); return true;
     }
     function endTurn(g) {
       if (g.phase === 'over') return;
