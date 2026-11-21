@@ -35,6 +35,21 @@ header{display:flex;gap:8px;align-items:center;padding:6px 10px;background:#2239
 #rdice .die{width:84px;height:84px;position:relative;padding:0;cursor:default}
 #rt2{font-size:19px;font-weight:800;color:#1b6ec2;min-height:26px}
 .rbox .sk{font-size:11px;color:#777;margin-top:6px}
+.railg.owned{display:none}
+.mfloat{position:fixed;z-index:100;transform:translateX(-50%);font-weight:900;font-size:22px;pointer-events:none;text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 6px #fff;animation:mflo 2.3s ease-out forwards;opacity:0}
+.mfloat.up{color:#18862f}.mfloat.dn{color:#c0392b}
+@keyframes mflo{0%{opacity:0;transform:translate(-50%,0) scale(.7)}12%{opacity:1;transform:translate(-50%,6px) scale(1.2)}70%{opacity:1}100%{opacity:0;transform:translate(-50%,46px) scale(1)}}
+#toast{position:absolute;left:50%;top:14px;transform:translateX(-50%);z-index:26;background:#fffbe8;border:4px solid #22392d;border-radius:14px;padding:10px 18px;max-width:min(560px,92%);text-align:center;font-size:17px;box-shadow:0 6px 24px #0006;cursor:pointer}
+#toast[hidden]{display:none}
+#toast .gain{color:#18862f;font-weight:900;font-size:20px}
+#toast .lu{font-size:30px;font-weight:900;letter-spacing:2px;color:#c0392b;transform:rotate(-2deg);margin-bottom:4px;text-shadow:2px 2px 0 #0002;animation:lupop .5s}
+@keyframes lupop{0%{transform:scale(.3) rotate(-14deg)}60%{transform:scale(1.25) rotate(3deg)}100%{transform:scale(1) rotate(-2deg)}}
+.six{position:absolute;left:50%;top:38%;transform:translate(-50%,-50%);z-index:45;pointer-events:none;font-weight:900;color:#fff;background:#22392d;border-radius:12px;padding:4px 14px;font-size:20px;animation:sixpop 1.6s ease-out forwards}
+.six.big{font-size:54px;padding:8px 30px;background:linear-gradient(135deg,#e6194b,#ff8c00);box-shadow:0 8px 40px #000a;letter-spacing:3px;animation:sixbig 2.6s ease-out forwards}
+@keyframes sixpop{0%{opacity:0;transform:translate(-50%,-50%) scale(.6)}20%{opacity:1;transform:translate(-50%,-50%) scale(1.1)}100%{opacity:0;transform:translate(-50%,-70%) scale(1)}}
+@keyframes sixbig{0%{opacity:0;transform:translate(-50%,-50%) scale(.2) rotate(-12deg)}18%{opacity:1;transform:translate(-50%,-50%) scale(1.25) rotate(3deg)}30%{transform:translate(-50%,-50%) scale(1) rotate(-2deg)}85%{opacity:1}100%{opacity:0;transform:translate(-50%,-60%) scale(1)}}
+.cf{position:absolute;top:-16px;width:9px;height:15px;z-index:44;pointer-events:none;opacity:0;animation:cfall 2.6s ease-in forwards}
+@keyframes cfall{0%{opacity:1;transform:translate(0,0) rotate(0)}100%{opacity:1;transform:translate(var(--dx,0),620px) rotate(720deg)}}
 .fxf{animation:fxp .75s ease-in-out 4;pointer-events:none}
 @keyframes fxp{0%,100%{opacity:.08}50%{opacity:.8}}
 .sb{border-collapse:collapse;width:100%;font-size:13px}
@@ -134,6 +149,7 @@ dialog h2{margin-top:0}.rules li{margin-bottom:5px}
    <svg id="map" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet"></svg>
    <div id="tip" hidden></div>
    <div id="pipbox" hidden></div>
+   <div id="toast" hidden></div>
    <div id="rollov" hidden><div class="rbox"><div id="rt1"></div><div id="rdice"></div><div id="rt2"></div><div class="sk">tap to skip</div></div></div>
    <div class="mapctl"><button id="zin" title="Zoom in">+</button><button id="zout" title="Zoom out">&minus;</button><button id="zall" title="Whole map">&#8962;</button><button id="ztight" title="Tight map: playable area only">&#9635;</button><button id="znow" title="Centre on the player">&#9678;</button></div>
   </section>
@@ -155,6 +171,7 @@ dialog h2{margin-top:0}.rules li{margin-bottom:5px}
   <label><input type="checkbox" id="hm"> Triangles on home cities</label>
   <label><input type="checkbox" id="tg"> Rail codes on the map</label>
   <label>Player colours <select id="pal"><option value="classic">Classic</option><option value="safe">Colour-blind safe</option><option value="bold">Bold</option></select></label>
+  <label><input type="checkbox" id="pln"> Owned tracks show only the owner's colour (hide the rail's own stripe)</label>
   <label><input type="checkbox" id="trl"> Keep each player's last move highlighted on the map</label>
   <label><input type="checkbox" id="crd"> Card slots around the board (rail cards; bought ones in the owner's colour)</label>
   <label><input type="checkbox" id="thk"> Owned rails in thick player colour (more room between parallel tracks)</label>

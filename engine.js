@@ -160,7 +160,7 @@
     function caught(g, r, c) {
       r.cash -= C.catchFee; c.cash += C.catchFee; r.paid += C.catchFee; c.received += C.catchFee;
       const mid = r.path.length && r.dd > 0 && r.h < r.path.length;
-      r.goingHome = false; r.mustRun = true; r.payFrom = r.declaredFrom || r.loc; r.dest = null; r.origin = null; r.via = [];
+      r.goingHome = false; r.legacy = null; r.mustRun = true; r.payFrom = r.declaredFrom || r.loc; r.dest = null; r.origin = null; r.via = [];
       if (mid) { r.path = [r.path[r.h]]; r.h = 0; } else { r.path = []; r.h = 0; r.dd = 0; }
       log(g, c.name + ' catches ' + r.name + '! ' + r.name + ' pays ' + money(C.catchFee) + ', must roll a new destination (and reach it before declaring again), paid from ' + r.payFrom + '.', c.id);
       settle(g, r);
@@ -272,10 +272,15 @@
       if (rails.some(r => g.owner[r] === pi)) return { free: true };
       const keyOf = r => (g.owner[r] === undefined ? 'PUB' : 'O' + g.owner[r]);
       const had = rails.find(r => paid[keyOf(r)]); if (had) return { free: true, rail: had };
-      let pick = rails.find(r => g.owner[r] === undefined);
+      const q = g.players[pi], lg = q && q.legacy, lr = lg && lg.rails ? rails.find(r => lg.rails[r] !== undefined) : undefined;
+      let pick = lr || rails.find(r => g.owner[r] === undefined);
       if (!pick) pick = rails.slice().sort((a, b) => P.rail[a].price - P.rail[b].price)[0];
-      const o = g.owner[pick];
-      return { key: keyOf(pick), amount: o === undefined ? C.feePublic : (allSold(g) ? C.feeAllSold : C.feePrivate), payee: o === undefined ? -1 : o, rail: pick };
+      const o = g.owner[pick]; let amount = o === undefined ? C.feePublic : (allSold(g) ? C.feeAllSold : C.feePrivate), legacy = false;
+      /* legacy prices: a player who was on, or at the end of, a track when it was bought keeps paying the old price until they reach their destination
+         (the public 1K for that track; and 5K instead of 10K when that purchase sold the last rail) */
+      if (lg && lg.rails && lg.rails[pick] !== undefined && o !== undefined) { amount = lg.rails[pick]; legacy = true; }
+      else if (lg && lg.tier5 && o !== undefined && allSold(g)) { amount = C.feePrivate; legacy = true; }
+      return { key: keyOf(pick), amount, payee: o === undefined ? -1 : o, rail: pick, legacy };
     }
 
     /* ---------- movement ---------- */
@@ -296,7 +301,7 @@
           else {
             const o = g.players[f.payee]; o.cash += f.amount; o.received += f.amount;
             if (allSold(g)) { p.f10++; o.r10++; } else { p.f5++; o.r5++; }
-            notes.push('paid ' + money(f.amount) + ' to ' + o.name + ' (' + f.rail + ')');
+            notes.push('paid ' + money(f.amount) + ' to ' + o.name + ' (' + f.rail + (f.legacy ? ', legacy price' : '') + ')');
           }
         }
         for (let k = 1; k <= take; k++) pts.push(ptAt(st.hop, st.from, p.dd + k));
@@ -398,7 +403,7 @@
         if (f && !f.free) {
           g.turnPaid[f.key] = 1; p.cash -= f.amount; p.paid += f.amount;
           if (f.payee < 0) { p.f1++; notes.push('paid ' + money(f.amount) + ' to the bank (public ' + f.rail + ')'); }
-          else { const o = g.players[f.payee]; o.cash += f.amount; o.received += f.amount; if (allSold(g)) { p.f10++; o.r10++; } else { p.f5++; o.r5++; } notes.push('paid ' + money(f.amount) + ' to ' + o.name + ' (' + f.rail + ')'); }
+          else { const o = g.players[f.payee]; o.cash += f.amount; o.received += f.amount; if (allSold(g)) { p.f10++; o.r10++; } else { p.f5++; o.r5++; } notes.push('paid ' + money(f.amount) + ' to ' + o.name + ' (' + f.rail + (f.legacy ? ', legacy price' : '') + ')'); }
         }
       });
       const arrived = w.arrived; g.trails = g.trails || {}; g.trails[p.id] = w.segs.map(q => ({ hop: q.hop, from: q.from, to: q.to, start: q.start, take: q.take })); g.lastMover = p.id;
@@ -415,6 +420,7 @@
     function arrive(g, p) {
       p.loc = p.dest; const pay = payoff(p.origin, p.dest);
       if (p.goingHome && p.loc === p.home) { win(g, p); return; }
+      g.arrival = { n: ((g.arrival && g.arrival.n) || 0) + 1, id: p.id, city: p.dest, pays: pay }; p.legacy = null;
       p.cash += pay; p.gross += pay; p.trips++; g.trips.push({ p: p.id, from: p.origin, to: p.dest, pays: pay, round: g.round });
       log(g, p.name + ' arrives in ' + p.dest + ' from ' + p.origin + ' and collects ' + money(pay) + ' (cash ' + money(p.cash) + ').', p.id);
       p.dest = null; p.origin = null; p.path = []; p.h = 0; p.dd = 0; p.via = []; p.mustRun = false;
@@ -434,7 +440,18 @@
     function canBuy(g, pi, code) { const r = P.rail[code]; return g.phase === 'buy' && !g.bought && g.owner[code] === undefined && g.players[pi].cash >= r.price * M.unit; }
     function buyRail(g, pi, code) {
       if (!canBuy(g, pi, code)) return false;
-      const p = g.players[pi], r = P.rail[code]; p.cash -= r.price * M.unit; g.owner[code] = pi; g.bought = true;
+      const p = g.players[pi], r = P.rail[code], allBefore = allSold(g); p.cash -= r.price * M.unit; g.owner[code] = pi; g.bought = true;
+      const onTrack = q => (q.path.length && q.dd > 0 && q.h < q.path.length && M.hops[q.path[q.h].hop].rails.indexOf(code) >= 0) || (q.loc && r.cities.has && r.cities.has(q.loc)) || (q.loc && Array.isArray(r.cities) && r.cities.indexOf(q.loc) >= 0);
+      const victims = [];
+      g.players.forEach(q => {
+        if (q.id === pi || !q.dest) return; // only players in the middle of a trip
+        const on = onTrack(q);
+        if (on) { q.legacy = q.legacy || { rails: {} }; q.legacy.rails[code] = C.feePublic; }
+        if (!allBefore && allSold(g)) { q.legacy = q.legacy || { rails: {} }; q.legacy.tier5 = true; }
+        const serves = r.cities.has ? r.cities.has(q.dest) : (r.cities || []).indexOf(q.dest) >= 0;
+        if (serves && !on && q.dest !== q.loc) victims.push({ id: q.id, name: q.name, dest: q.dest });
+      });
+      if (victims.length) g.taunt = { n: ((g.taunt && g.taunt.n) || 0) + 1, buyer: p.name, buyerId: pi, rail: code, railName: r.name, victims };
       log(g, p.name + ' buys ' + r.code + ' (' + r.name + ') for ' + money(r.price * M.unit) + '.', pi);
       return true;
     }

@@ -222,13 +222,13 @@
   function updateMap() {
     document.querySelectorAll('#L-halo .haloe').forEach(h => {
       const code = h.getAttribute('data-rail'), o = g ? g.owner[code] : undefined;
-      if (o === undefined) h.setAttribute('stroke', 'none'); else { h.setAttribute('stroke', '#111'); h.setAttribute('stroke-width', P.rail[code].w + (prefs.thick ? 13 : 5) + 4); h.setAttribute('opacity', 0.9); }
+      if (o === undefined) h.setAttribute('stroke', 'none'); else { h.setAttribute('stroke', '#111'); h.setAttribute('stroke-width', P.rail[code].w + (prefs.thick ? 13 : (prefs.plain !== false ? 6 : 5)) + 4); h.setAttribute('opacity', 0.9); }
     });
     document.querySelectorAll('#L-halo .halo').forEach(h => {
       const code = h.getAttribute('data-rail'), o = g ? g.owner[code] : undefined;
-      if (o === undefined) { h.setAttribute('stroke', 'none'); } else { h.setAttribute('stroke', COLORS[o % COLORS.length]); h.setAttribute('stroke-width', P.rail[code].w + (prefs.thick ? 13 : 5)); h.setAttribute('opacity', 1); }
+      if (o === undefined) { h.setAttribute('stroke', 'none'); } else { h.setAttribute('stroke', COLORS[o % COLORS.length]); h.setAttribute('stroke-width', P.rail[code].w + (prefs.thick ? 13 : (prefs.plain !== false ? 6 : 5))); h.setAttribute('opacity', 1); }
     });
-    document.querySelectorAll('#L-rails .railg').forEach(x => x.classList.toggle('flash', x.getAttribute('data-rail') === hi));
+    document.querySelectorAll('#L-rails .railg').forEach(x => { const code = x.getAttribute('data-rail'); x.classList.toggle('flash', code === hi); x.classList.toggle('owned', prefs.plain !== false && !!g && g.owner[code] !== undefined && code !== hi); });
     layers.route.innerHTML = ''; layers.tokens.innerHTML = ''; layers.steps.innerHTML = ''; layers.mark.innerHTML = ''; drawTags(); drawSlots();
     if (!g) return;
     const p = B.cur(g);
@@ -476,14 +476,46 @@
     $('round').textContent = 'Round ' + g.round;
     $('cash').innerHTML = g.players.map(p => '<div class="cc' + (p.id === g.turn && g.phase !== 'over' ? ' on' : '') + '" style="border-color:' + COLORS[p.id % COLORS.length] + '"><b>' + esc(p.name) + '</b><span class="' + (p.cash < 0 ? 'neg' : '') + '">' + money(p.cash) + '</span></div>').join('');
     $('players').innerHTML = playersHtml(); $('actions').innerHTML = actionsHtml(); $('dicebox').innerHTML = diceHtml(); $('rails').innerHTML = railsHtml(); $('log').innerHTML = logHtml(); renderTip();
-    updateMap(); autosave();
+    updateMap(); autosave(); cashFloats();
   }
   function autosave() { try { if (g.phase === 'over') localStorage.removeItem(SAVE); else localStorage.setItem(SAVE, JSON.stringify(g)); } catch (e) { /* storage full or blocked */ } }
 
+  /* ---------- money floats, popups and celebrations ---------- */
+  let lastG = null, prevCash = null, seenArrival = 0, seenTaunt = 0; const floatCount = {};
+  function floatMoney(i, d) { // "-$5K" / "+$5K" rises from the player's cash chip
+    const chip = document.querySelectorAll('#cash .cc')[i]; if (!chip) return;
+    const r = chip.getBoundingClientRect(), k = (floatCount[i] = (floatCount[i] || 0) + 1), e = document.createElement('div');
+    e.className = 'mfloat ' + (d > 0 ? 'up' : 'dn'); e.textContent = (d > 0 ? '+' : '') + money(d);
+    e.style.left = (r.left + r.width / 2) + 'px'; e.style.top = (r.bottom + 2) + 'px'; e.style.animationDelay = (((k - 1) % 4) * 0.3) + 's';
+    document.body.appendChild(e); setTimeout(() => { e.remove(); floatCount[i] = Math.max(0, (floatCount[i] || 1) - 1); }, 2800);
+  }
+  function cashFloats() {
+    if (!g) { prevCash = null; return; }
+    const now = g.players.map(p => p.cash);
+    if (lastG === g && prevCash && prevCash.length === now.length) now.forEach((v, i) => { const d = v - prevCash[i]; if (d) floatMoney(i, d); });
+    prevCash = now;
+  }
+  let toastTimer = 0;
+  function toast(html, ms, color) {
+    const t = $('toast'); t.innerHTML = html; t.style.borderColor = color || '#22392d'; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, ms || 2800); t.onclick = () => { t.hidden = true; };
+  }
+  function celebrateSix(big) {
+    const w = $('mapwrap'), b = document.createElement('div'); b.className = 'six' + (big ? ' big' : ''); b.textContent = big ? 'DOUBLE SIX!' : 'Double six'; w.appendChild(b); setTimeout(() => b.remove(), big ? 2800 : 1700);
+    if (!big) return; const cols = ['#e6194b', '#ffd400', '#2e9e4f', '#1b6ec2', '#ff8c00', '#8e24aa'];
+    for (let i = 0; i < 80; i++) { const c = document.createElement('i'); c.className = 'cf'; c.style.left = Math.random() * 100 + '%'; c.style.background = cols[i % cols.length]; c.style.animationDelay = (Math.random() * 0.6) + 's'; c.style.setProperty('--dx', (Math.random() * 200 - 100) + 'px'); w.appendChild(c); setTimeout(() => c.remove(), 3600); }
+  }
+  function announce() { // popups for what just happened: arrivals and a rail bought into someone's destination
+    if (!g) return;
+    if (lastG !== g) { lastG = g; seenArrival = g.arrival ? g.arrival.n : 0; seenTaunt = g.taunt ? g.taunt.n : 0; prevCash = g.players.map(p => p.cash); return; }
+    if (g.arrival && g.arrival.n !== seenArrival) { seenArrival = g.arrival.n; const a = g.arrival, pl = g.players[a.id], col = COLORS[a.id % COLORS.length];
+      toast('<b style="color:' + col + '">' + esc(pl.name) + '</b> arrives in <b>' + esc(a.city) + '</b> &nbsp;<span class="gain">+' + money(a.pays) + '</span>', 2600, col); flashCity(a.city, col); }
+    if (g.taunt && g.taunt.n !== seenTaunt) { seenTaunt = g.taunt.n; const k = g.taunt, col = COLORS[k.buyerId % COLORS.length];
+      setTimeout(() => toast('<div class="lu">LUCANORED!</div><div><b style="color:' + col + '">' + esc(k.buyer) + '</b> just bought <b>' + esc(k.rail) + '</b>. ' + k.victims.map(v => '<b>' + esc(v.name) + '</b> now pays a toll to reach <b>' + esc(v.dest) + '</b>').join('; ') + '.</div>', 4600, col), 900); }
+  }
   /* ---------- turn flow ---------- */
   let flashTimer = 0;
   function afterAction() {
-    render();
+    render(); announce();
     if (g.phase !== 'over') { const key = g.round + ':' + g.turn; if (key !== lastKey) { lastKey = key; turnIntro(); } }
     scheduleBot();
   }
@@ -505,7 +537,7 @@
       const it = items[i++]; ov.hidden = false; $('rt1').textContent = it.title; $('rt2').textContent = ' '; box.innerHTML = '';
       if (window.Dice3D) window.Dice3D.sync(box, it.vals, { anim: it.vals.map(() => true), mode: quick ? 'quick' : 'full' });
       [].forEach.call(box.children, (d, k) => { const red = it.red && k === 0; d.style.setProperty('--die', red ? '#c0392b' : '#fffaf0'); d.style.setProperty('--pip', red ? '#fff' : '#25221c'); });
-      tm = setTimeout(() => { $('rt2').textContent = it.text; tm = setTimeout(next, quick ? 700 : 1300); }, quick ? 800 : 3000);
+      tm = setTimeout(() => { $('rt2').textContent = it.text; if (it.six) celebrateSix(it.six === 'big'); tm = setTimeout(next, quick ? 700 : 1300); }, quick ? 800 : 3000);
     };
     ov.onclick = next; next();
   }
@@ -516,7 +548,7 @@
     else if (kind === 'city') out = [dd(g.destRolls && g.destRolls.city, 'destination city')];
     else if (kind === 'home') { const l = g.lastHome; out = l ? [dd(l.region, 'home region'), dd(l.city, 'home city')] : []; }
     else if (kind === 'order') { const d = g.dice; if (d && d.rolls) out = [{ vals: d.rolls, title: who + ' rolls to go first', text: 'rolled ' + d.sum }]; }
-    else if (kind === 'move') { const d = g.dice; if (d && d.rolls && d.rolls.length) out = [{ vals: d.rolls, title: who + ' rolls to move', text: '= ' + d.sum + ' pips' + (g.dbl6 ? ' — DOUBLE SIX!' : '') }]; }
+    else if (kind === 'move') { const d = g.dice; if (d && d.rolls && d.rolls.length) { const six = d.rolls.length === 2 && d.rolls[0] === 6 && d.rolls[1] === 6; out = [{ vals: d.rolls, title: who + ' rolls to move', text: '= ' + d.sum + ' pips' + (six ? ' — DOUBLE SIX!' : ''), six: six ? (B.cur(g).sc ? 'small' : 'big') : '' }]; } }
     return out.filter(Boolean);
   }
   let fxTimer = 0;
@@ -586,7 +618,7 @@
     };
     const finish = () => { anim = null; animHide = -1; layers.anim.innerHTML = ''; afterAction(); };
     const go = () => { pb.hidden = false; draw(0); let i = 0; const tick = () => { if (i >= pts.length) { setTimeout(finish, fast ? 150 : 800); return; } i++; draw(i); setTimeout(tick, stepMs); }; setTimeout(tick, holdMs); };
-    if (rolls.length && !prefs.manual && prefs.speed > 120) rollFx([{ vals: rolls, title: snap.name + ' rolls to move', text: '= ' + mv.rolled + ' pips' + (g.dbl6 && !g.bonus ? ' — DOUBLE SIX!' : '') }], go, prefs.speed <= 650); else go();
+    if (rolls.length && !prefs.manual && prefs.speed > 120) rollFx([{ vals: rolls, title: snap.name + ' rolls to move', text: '= ' + mv.rolled + ' pips' + (rolls.length === 2 && rolls[0] === 6 && rolls[1] === 6 ? ' — DOUBLE SIX!' : ''), six: rolls.length === 2 && rolls[0] === 6 && rolls[1] === 6 ? (p.sc ? 'small' : 'big') : '' }], go, prefs.speed <= 650); else go();
   }
   function act(a, el) {
     if (!g || anim) return; const p = B.cur(g), who = p.name, whoId = p.id; let fx = null;
@@ -632,6 +664,7 @@
     if (e.target.id === 'tg') { prefs.tags = e.target.checked; drawTags(); savePrefs(); }
     if (e.target.id === 'thk') { prefs.thick = e.target.checked; savePrefs(); const keep = Object.assign({}, vb); buildMap(); vb = keep; applyView(); updateMap(); }
     if (e.target.id === 'pal') { prefs.palette = e.target.value; COLORS = PALETTES[prefs.palette] || PALETTES.classic; savePrefs(); if (g) render(); }
+    if (e.target.id === 'pln') { prefs.plain = e.target.checked; savePrefs(); updateMap(); }
     if (e.target.id === 'trl') { prefs.trails = e.target.checked; savePrefs(); updateMap(); }
     if (e.target.id === 'crd') { prefs.cards = e.target.checked; applyTight(); updateMap(); savePrefs(); }
     if (e.target.id === 'tgt') { prefs.tight = e.target.checked; applyTight(); savePrefs(); }
@@ -677,6 +710,8 @@
       '<li><b>Start of a game:</b> everyone rolls one die to go first (ties roll again among themselves). Seating order never changes: the winner starts and play goes round the table from there. Home cities are rolled the same way, starting with the winner.</li>' +
       '<li><b>One purchase</b> per turn: a rail or the Orient Express. An Orient Express you buy starts working next turn.</li>' +
       '<li><b>Declare:</b> at ' + money(c.win) + ' you may declare for home instead of rolling a destination (or keep rolling if it looks risky). If another player who is not running home crosses your spot (any pip or city) on their own move, you are caught (a runner can cross anyone on their own turn without being caught): you pay them ' + money(c.catchFee) + ' and must run a new destination (paid from where you declared). Being caught is not your turn: you roll a destination on your next turn and must reach it before declaring again. You must stop on your destination when you reach it.</li>' +
+      '<li><b>Legacy prices:</b> a player who is on a track, or standing at the end of one, when another player buys it keeps paying the old price (the public 1K) for that track until they reach their destination. If the purchase sells the last rail, players already on their way keep paying 5K instead of 10K until they arrive.</li>' +
+      '<li><b>Buying into a destination:</b> buy a rail that serves another player&rsquo;s destination before they get there and they pay the toll (and get a &ldquo;Lucanored&rdquo; popup).</li>' +
       '<li><b>Payoff:</b> $1K per dot of the shortest track route from where your trip started.</li>' +
       '<li><b>Fees, once a turn:</b> ' + money(c.feePublic) + ' to the bank if you use any public rail; ' + money(c.feePrivate) + ' to each owner whose rails you use (' + money(c.feeAllSold) + ' once every rail is sold). Your own rails are free.</li>' +
       '<li><b>Buying:</b> after each arrival you may buy rails (and the Orient Express). Owned rails glow in the owner&rsquo;s colour.</li>' +
@@ -693,10 +728,10 @@
   $('hsold').onchange = e => { prefs.hideSold = e.target.checked; savePrefs(); if (g) $('rails').innerHTML = railsHtml(); };
   document.addEventListener('toggle', e => { const d = e.target; if (d.dataset && d.dataset.grp) { prefs.shut = prefs.shut || {}; prefs.shut[d.dataset.grp] = !d.open; savePrefs(); } }, true);
   $('bsave').onclick = () => { if (g) download('iron-meridian-save.json', JSON.stringify(g)); };
-  $('hm').checked = prefs.homes !== false; $('stp').checked = prefs.step !== false; $('tg').checked = prefs.tags !== false; $('crd').checked = !!prefs.cards; $('trl').checked = prefs.trails !== false; $('pal').value = prefs.palette || 'classic'; $('thk').checked = !!prefs.thick; $('tgt').checked = !!prefs.tight; $('spd').value = String(prefs.speed); $('fol').checked = prefs.follow; $('man').checked = prefs.manual;
+  $('hm').checked = prefs.homes !== false; $('stp').checked = prefs.step !== false; $('tg').checked = prefs.tags !== false; $('crd').checked = !!prefs.cards; $('trl').checked = prefs.trails !== false; $('pln').checked = prefs.plain !== false; $('pal').value = prefs.palette || 'classic'; $('thk').checked = !!prefs.thick; $('tgt').checked = !!prefs.tight; $('spd').value = String(prefs.speed); $('fol').checked = prefs.follow; $('man').checked = prefs.manual;
 
   buildMap(); if (prefs.tight || prefs.cards) applyTight(); updateMap();
-  window.baronDebug = { B, laneOrders, get g() { return g; }, set g(v) { g = v; }, render, afterAction, handleMapClick, selectRail, closeTip, turnIntro };
+  window.baronDebug = { B, laneOrders, celebrateSix, toast, floatMoney, get g() { return g; }, set g(v) { g = v; }, render, afterAction, handleMapClick, selectRail, closeTip, turnIntro };
   let saved = null; try { saved = localStorage.getItem(SAVE); } catch (e) { /* none */ }
   if (saved) { try { g = JSON.parse(saved); afterAction(); } catch (e) { openSetup(); } } else { openSetup(); }
 })();
