@@ -2,13 +2,15 @@
 (function () {
   'use strict';
   const M = window.BARON_MAPS.EU, B = Baron(M), P = B.P, NS = 'http://www.w3.org/2000/svg';
-  const COLORS = ['#d7263d', '#1b6ec2', '#2e9e4f', '#e08e0b', '#7b3fb0', '#0f9aa6'];
+  const PALETTES = { classic: ['#d7263d', '#1b6ec2', '#2e9e4f', '#e08e0b', '#7b3fb0', '#0f9aa6'], safe: ['#d55e00', '#0072b2', '#009e73', '#e8b800', '#cc79a7', '#444444'], bold: ['#e6194b', '#3a49d8', '#1a9e3c', '#ff8c00', '#8e24aa', '#111111'] };
+  let COLORS = PALETTES.classic;
   const SAVE = 'baron.eu.save.v1', PREF = 'baron.eu.prefs.v2';
   const $ = id => document.getElementById(id);
   const esc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const FACE = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
   let g = null, prefs = { speed: 650, follow: false, manual: false, tags: true, homes: true, step: true, cards: false, tight: false }, botTimer = null, paused = false, routeMode = 'balanced', hi = null, flashId = -1, animHide = -1, anim = null, tip = null, lastKey = '', introUntil = 0;
   try { Object.assign(prefs, JSON.parse(localStorage.getItem(PREF) || '{}')); } catch (e) { /* no storage */ }
+  COLORS = PALETTES[prefs.palette] || PALETTES.classic;
   const savePrefs = () => { try { localStorage.setItem(PREF, JSON.stringify(prefs)); } catch (e) { /* ignore */ } };
 
   /* ---------- map ---------- */
@@ -43,6 +45,7 @@
       const cnt = h.rails.length;
       h.rails.forEach((code, k) => {
         const r = P.rail[code], off = (k - (cnt - 1) / 2) * (prefs.thick ? 17 : 7.5), pts = h.pts.map(p => [p[0] + h.nx * off, p[1] + h.ny * off]), d = smooth(pts);
+        const edge = el('path', { d, fill: 'none', stroke: 'none', 'stroke-linecap': 'round', 'data-rail': code }, layers.halo); edge.classList.add('haloe');
         const halo = el('path', { d, fill: 'none', stroke: 'none', 'stroke-linecap': 'round', 'data-rail': code }, layers.halo); halo.classList.add('halo');
         const g1 = el('g', { 'data-rail': code }, layers.rails); g1.classList.add('railg');
         el('path', { d, fill: 'none', stroke: '#fff', 'stroke-width': r.w + 2.6, opacity: 0.8, 'stroke-linejoin': 'round' }, g1);
@@ -169,9 +172,13 @@
   /* ---------- dynamic map layers ---------- */
   /* ---------- dynamic map layers ---------- */
   function updateMap() {
+    document.querySelectorAll('#L-halo .haloe').forEach(h => {
+      const code = h.getAttribute('data-rail'), o = g ? g.owner[code] : undefined;
+      if (o === undefined) h.setAttribute('stroke', 'none'); else { h.setAttribute('stroke', '#111'); h.setAttribute('stroke-width', P.rail[code].w + (prefs.thick ? 13 : 5) + 4); h.setAttribute('opacity', 0.9); }
+    });
     document.querySelectorAll('#L-halo .halo').forEach(h => {
       const code = h.getAttribute('data-rail'), o = g ? g.owner[code] : undefined;
-      if (o === undefined) { h.setAttribute('stroke', 'none'); } else { h.setAttribute('stroke', COLORS[o % COLORS.length]); h.setAttribute('stroke-width', P.rail[code].w + (prefs.thick ? 13 : 5)); h.setAttribute('opacity', 0.75); }
+      if (o === undefined) { h.setAttribute('stroke', 'none'); } else { h.setAttribute('stroke', COLORS[o % COLORS.length]); h.setAttribute('stroke-width', P.rail[code].w + (prefs.thick ? 13 : 5)); h.setAttribute('opacity', 1); }
     });
     document.querySelectorAll('#L-rails .railg').forEach(x => x.classList.toggle('flash', x.getAttribute('data-rail') === hi));
     layers.route.innerHTML = ''; layers.tokens.innerHTML = ''; layers.steps.innerHTML = ''; layers.mark.innerHTML = ''; drawTags(); drawSlots();
@@ -230,9 +237,13 @@
       segs.forEach(seg => {
         const pts = []; for (let d = seg.start; d <= seg.start + seg.take; d++) pts.push(posAt(seg, d));
         const pl = pts.map(q => q.join(',')).join(' ');
-        el('polyline', { points: pl, fill: 'none', stroke: '#fff', 'stroke-width': latest ? 17 : 12, opacity: latest ? 0.75 : 0.4, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'pointer-events': 'none' }, layers.steps);
-        el('polyline', { points: pl, fill: 'none', stroke: col, 'stroke-width': latest ? 11 : 7, opacity: latest ? 0.9 : 0.5, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'pointer-events': 'none' }, layers.steps);
-        if (latest) pts.slice(1).forEach(q => el('circle', { cx: q[0], cy: q[1], r: 4.5, fill: '#fff', stroke: col, 'stroke-width': 2, 'pointer-events': 'none' }, layers.steps));
+        el('polyline', { points: pl, fill: 'none', stroke: '#fff', 'stroke-width': latest ? 13 : 9, opacity: latest ? 0.6 : 0.3, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'pointer-events': 'none' }, layers.steps);
+        el('polyline', { points: pl, fill: 'none', stroke: col, 'stroke-width': latest ? 7 : 4.5, 'stroke-dasharray': latest ? '13 9' : '8 9', opacity: latest ? 1 : 0.55, 'stroke-linecap': 'butt', 'stroke-linejoin': 'round', 'pointer-events': 'none' }, layers.steps);
+        if (latest) for (let i = 1; i < pts.length; i++) { // an arrowhead on every pip, pointing the way they went
+          const a0 = pts[i - 1], a1 = pts[i], ang = Math.atan2(a1[1] - a0[1], a1[0] - a0[0]), c = Math.cos(ang), s = Math.sin(ang), sz = 9;
+          const P1 = [a1[0] + c * sz, a1[1] + s * sz], P2 = [a1[0] - c * sz * 0.7 - s * sz * 0.8, a1[1] - s * sz * 0.7 + c * sz * 0.8], P3 = [a1[0] - c * sz * 0.7 + s * sz * 0.8, a1[1] - s * sz * 0.7 - c * sz * 0.8];
+          el('polygon', { points: [P1, P2, P3].map(q => q.map(v => v.toFixed(1)).join(',')).join(' '), fill: '#fff', stroke: col, 'stroke-width': 2.5, 'stroke-linejoin': 'round', 'pointer-events': 'none' }, layers.steps);
+        }
       });
     });
   }
@@ -572,6 +583,7 @@
     if (e.target.id === 'stp') { prefs.step = e.target.checked; savePrefs(); }
     if (e.target.id === 'tg') { prefs.tags = e.target.checked; drawTags(); savePrefs(); }
     if (e.target.id === 'thk') { prefs.thick = e.target.checked; savePrefs(); const keep = Object.assign({}, vb); buildMap(); vb = keep; applyView(); updateMap(); }
+    if (e.target.id === 'pal') { prefs.palette = e.target.value; COLORS = PALETTES[prefs.palette] || PALETTES.classic; savePrefs(); if (g) render(); }
     if (e.target.id === 'trl') { prefs.trails = e.target.checked; savePrefs(); updateMap(); }
     if (e.target.id === 'crd') { prefs.cards = e.target.checked; applyTight(); updateMap(); savePrefs(); }
     if (e.target.id === 'tgt') { prefs.tight = e.target.checked; applyTight(); savePrefs(); }
@@ -633,7 +645,7 @@
   $('hsold').onchange = e => { prefs.hideSold = e.target.checked; savePrefs(); if (g) $('rails').innerHTML = railsHtml(); };
   document.addEventListener('toggle', e => { const d = e.target; if (d.dataset && d.dataset.grp) { prefs.shut = prefs.shut || {}; prefs.shut[d.dataset.grp] = !d.open; savePrefs(); } }, true);
   $('bsave').onclick = () => { if (g) download('iron-meridian-save.json', JSON.stringify(g)); };
-  $('hm').checked = prefs.homes !== false; $('stp').checked = prefs.step !== false; $('tg').checked = prefs.tags !== false; $('crd').checked = !!prefs.cards; $('trl').checked = prefs.trails !== false; $('thk').checked = !!prefs.thick; $('tgt').checked = !!prefs.tight; $('spd').value = String(prefs.speed); $('fol').checked = prefs.follow; $('man').checked = prefs.manual;
+  $('hm').checked = prefs.homes !== false; $('stp').checked = prefs.step !== false; $('tg').checked = prefs.tags !== false; $('crd').checked = !!prefs.cards; $('trl').checked = prefs.trails !== false; $('pal').value = prefs.palette || 'classic'; $('thk').checked = !!prefs.thick; $('tgt').checked = !!prefs.tight; $('spd').value = String(prefs.speed); $('fol').checked = prefs.follow; $('man').checked = prefs.manual;
 
   buildMap(); if (prefs.tight || prefs.cards) applyTight(); updateMap();
   window.baronDebug = { B, get g() { return g; }, set g(v) { g = v; }, render, afterAction, handleMapClick, selectRail, closeTip, turnIntro };
