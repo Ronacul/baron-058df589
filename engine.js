@@ -92,32 +92,37 @@
         });
       });
       /* the game opens with two set-up rounds: everyone rolls for turn order, then (in that order) for a home city */
-      g.phase = 'order'; g.turn = 0; g.setup = { i: 0, rolls: [], last: null };
-      log(g, 'Roll for turn order: the highest roll goes first.');
+      g.phase = 'order'; g.turn = 0; g.first = 0; g.setup = { i: 0, round: 1, con: g.players.map((_, k) => k), rolls: [], last: null };
+      log(g, 'Everyone rolls a die: the highest goes first (ties roll again). Play then follows the seating order.');
       return g;
     }
+    /* who goes first: every player rolls one die, the highest wins; tied players roll again among themselves until one is left.
+       The seating order never changes: play starts with the winner and goes round the table in seat order. */
     function rollOrder(g) {
       const s = g.setup; if (g.phase !== 'order' || !s) return null;
-      const p = g.players[s.i], a = d6(g), b = d6(g); s.rolls[s.i] = { a, b, sum: a + b, tb: rnd(g) }; g.dice = { kind: 'order', rolls: [a, b], sum: a + b };
-      log(g, p.name + ' rolled ' + a + ' + ' + b + ' = ' + (a + b) + ' for turn order.', p.id);
+      const pi = s.con[s.i], p = g.players[pi], v = d6(g); s.rolls[pi] = { a: v, sum: v, round: s.round }; g.dice = { kind: 'order', rolls: [v], sum: v };
+      log(g, p.name + ' rolled ' + v + (s.round > 1 ? ' (re-roll)' : '') + ' to go first.', p.id);
       s.i++;
-      if (s.i < g.players.length) { g.turn = s.i; return s.rolls[s.i - 1]; }
-      const idx = g.players.map((_, i) => i).sort((x, y) => (s.rolls[y].sum - s.rolls[x].sum) || (s.rolls[y].tb - s.rolls[x].tb));
-      const tied = new Set(); s.rolls.forEach((r, i) => s.rolls.forEach((q, j) => { if (i !== j && r.sum === q.sum) tied.add(i); }));
-      g.players = idx.map((o, k) => { const q = g.players[o]; q.id = k; return q; }); s.rolls = idx.map(o => s.rolls[o]);
-      log(g, 'Order of play: ' + g.players.map((q, k) => (k + 1) + '. ' + q.name).join(', ') + (tied.size ? ' (ties settled by a re-roll)' : '') + '. Now each rolls for a home city, in that order.');
-      g.phase = 'home'; s.i = 0; g.turn = 0; return null;
+      if (s.i < s.con.length) { g.turn = s.con[s.i]; return v; }
+      const max = Math.max.apply(null, s.con.map(q => s.rolls[q].sum)), top = s.con.filter(q => s.rolls[q].sum === max);
+      if (top.length > 1) { // a tie for the highest: only those players roll again
+        log(g, top.map(q => g.players[q].name).join(' and ') + ' tied on ' + max + ' and roll again.');
+        s.round++; s.con = top; s.i = 0; g.turn = top[0]; return v;
+      }
+      s.first = top[0]; g.first = top[0]; s.seq = g.players.map((_, k) => (top[0] + k) % g.players.length);
+      log(g, g.players[top[0]].name + ' goes first, then play follows the seating order. Now each rolls for a home city, starting with ' + g.players[top[0]].name + '.', g.players[top[0]].id);
+      g.phase = 'home'; s.i = 0; g.turn = s.seq[0]; return v;
     }
     function rollHomeStep(g) { // region roll then city roll, shown together
       const s = g.setup; if (g.phase !== 'home' || !s) return null;
-      const p = g.players[s.i], r = tableRoll(g), region = M.tracker.regions[r.parity][r.sum], tab = M.tracker.cityTables[region];
+      const p = g.players[s.seq[s.i]], r = tableRoll(g), region = M.tracker.regions[r.parity][r.sum], tab = M.tracker.cityTables[region];
       const d1 = { kind: 'region', ...r, region }; let city = region, d2 = null;
       if (tab) { const r2 = tableRoll(g); city = tab[r2.parity][r2.sum]; d2 = { kind: 'city', ...r2, region, city }; }
       p.home = p.loc = city; g.destRolls = d2 ? { region: d1, city: d2 } : { region: d1 }; g.dice = d2 || d1; s.last = p.name; g.lastHome = { name: p.name, id: p.id, region: d1, city: d2, home: city };
       log(g, p.name + ' rolled region ' + region + (tab ? ' then city ' + city : '') + ': home is ' + city + ', starting with ' + money(g.cfg.start) + '.', p.id);
       s.i++;
-      if (s.i < g.players.length) { g.turn = s.i; return city; }
-      g.turn = 0; g.round = 1; startTurn(g); return city;
+      if (s.i < g.players.length) { g.turn = s.seq[s.i]; return city; }
+      g.turn = s.first; g.round = 1; startTurn(g); return city;
     }
 
     /* ---------- dice and tables ---------- */
@@ -439,7 +444,7 @@
     }
     function endTurn(g) {
       if (g.phase === 'over') return;
-      g.turn = (g.turn + 1) % g.players.length; if (g.turn === 0) g.round++;
+      g.turn = (g.turn + 1) % g.players.length; if (g.turn === (g.first || 0)) g.round++;
       startTurn(g);
     }
 

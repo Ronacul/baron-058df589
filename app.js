@@ -259,9 +259,9 @@
   }
   function setupHtml() {
     const s = g.setup; if (!s) return '';
-    if (g.phase === 'order') return '<div><b>Turn order</b> <span class="muted">(highest roll goes first)</span></div>' + s.rolls.map((r, i) => r ? '<div>' + esc(g.players[i].name) + ' ' + dieHtml(r.a) + dieHtml(r.b) + ' = <b>' + r.sum + '</b></div>' : '').join('');
+    if (g.phase === 'order') return '<div><b>Who goes first?</b> <span class="muted">One die each; the highest goes first, ties roll again.</span></div>' + g.players.map((p, i) => { const r = s.rolls[i]; return r ? '<div><span class="dot" style="background:' + COLORS[p.id % COLORS.length] + '"></span>' + esc(p.name) + ' ' + dieHtml(r.a) + ' <b>' + r.a + '</b>' + (r.round > 1 ? ' <span class="muted">re-roll</span>' : '') + '</div>' : ''; }).join('');
     const dr = g.destRolls;
-    return '<div><b>Order of play:</b> ' + g.players.map((p, i) => (i + 1) + '. ' + esc(p.name) + (p.home ? ' (' + esc(p.home) + ')' : '')).join(' &middot; ') + '</div>' +
+    return '<div><b>' + esc(g.players[s.first].name) + ' goes first.</b> Seating order: ' + g.players.map((p, i) => esc(p.name) + (p.home ? ' (' + esc(p.home) + ')' : '')).join(' &middot; ') + '</div>' +
       (dr && s.last ? '<div style="margin-top:4px"><b>' + esc(s.last) + '</b> rolled a home city:</div>' + (dr.region ? rollLine(dr.region, '<b>1.</b> Region') : '') + (dr.city ? rollLine(dr.city, '<b>2.</b> City') : '') : '');
   }
   function diceHtml() {
@@ -309,7 +309,7 @@
     }
     h += '<div class="who"><span class="dot" style="background:' + COLORS[p.id % COLORS.length] + '"></span><b>' + esc(p.name) + '</b>' + (p.bot ? ' (bot)' : '') + ' &mdash; round ' + g.round + '</div>';
     if (p.bot) return h + '<div class="muted">' + (paused ? 'Paused.' : 'Bot is playing&hellip;') + '</div><div class="row"><button class="b" data-act="pause">' + (paused ? 'Resume bots' : 'Pause bots') + '</button> <button class="b" data-act="skip">Skip to the next human</button></div>';
-    if (g.phase === 'order') h += '<button class="b pri big" data-act="rollorder">&#127922; Roll for turn order (' + esc(p.name) + ')</button>';
+    if (g.phase === 'order') h += '<button class="b pri big" data-act="rollorder">&#127922; Roll a die to go first (' + esc(p.name) + ')</button>';
     else if (g.phase === 'home') h += '<div>Roll for your home city (region, then city).</div><button class="b pri big" data-act="rollhome">&#127922; Roll for home city (' + esc(p.name) + ')</button>';
     else if (g.phase === 'dest') {
       if (g.stage === 'declare') h += '<div class="win">You have ' + money(p.cash) + '. You may <b>declare for home</b> (' + esc(p.home) + ') or keep rolling destinations if it looks risky. Any player who crosses your spot (a pip or a city) on their move catches you, and nobody can turn back on a track: you pay them ' + money(M.cfg.catchFee) + ' and must run a new destination.</div><button class="b pri big" data-act="declare">&#127968; Declare: head for ' + esc(p.home) + '</button><button class="b big" data-act="rolldest">&#127922; Not yet: roll a destination instead</button>';
@@ -439,7 +439,7 @@
     if (kind === 'region') out = [dd(g.destRolls && g.destRolls.region, 'destination region')];
     else if (kind === 'city') out = [dd(g.destRolls && g.destRolls.city, 'destination city')];
     else if (kind === 'home') { const l = g.lastHome; out = l ? [dd(l.region, 'home region'), dd(l.city, 'home city')] : []; }
-    else if (kind === 'order') { const d = g.dice; if (d && d.rolls) out = [{ vals: d.rolls, title: who + ' rolls for turn order', text: '= ' + d.sum }]; }
+    else if (kind === 'order') { const d = g.dice; if (d && d.rolls) out = [{ vals: d.rolls, title: who + ' rolls to go first', text: 'rolled ' + d.sum }]; }
     else if (kind === 'move') { const d = g.dice; if (d && d.rolls && d.rolls.length) out = [{ vals: d.rolls, title: who + ' rolls to move', text: '= ' + d.sum + ' pips' + (g.dbl6 ? ' — DOUBLE SIX!' : '') }]; }
     return out.filter(Boolean);
   }
@@ -596,7 +596,7 @@
       '<li><b>Moving:</b> roll 2 dice of dots a turn. Dots left over at arrival are lost. Tap pips to pick your own path; where two tracks cross you may change tracks (you pay the fee of any track you ride).</li>' +
       '<li><b>Orient Express (' + money(c.superChief) + '):</b> after an arrival you collect, buy, roll a new destination and move one more die the same turn. Fees already paid that turn are not paid again.</li>' +
       '<li><b>Double six:</b> rolling two sixes on the movement dice gives you the Orient Express bonus for that turn (the bonus die cannot chain).</li>' +
-      '<li><b>Start of a game:</b> everyone rolls for turn order, then in that order for a home city; then play begins with a destination roll in that order.</li>' +
+      '<li><b>Start of a game:</b> everyone rolls one die to go first (ties roll again among themselves). Seating order never changes: the winner starts and play goes round the table from there. Home cities are rolled the same way, starting with the winner.</li>' +
       '<li><b>One purchase</b> per turn: a rail or the Orient Express. An Orient Express you buy starts working next turn.</li>' +
       '<li><b>Declare:</b> at ' + money(c.win) + ' you may declare for home instead of rolling a destination (or keep rolling if it looks risky). If another player who is not running home crosses your spot (any pip or city) on their own move, you are caught (a runner can cross anyone on their own turn without being caught): you pay them ' + money(c.catchFee) + ' and must run a new destination (paid from where you declared). Being caught is not your turn: you roll a destination on your next turn and must reach it before declaring again. You must stop on your destination when you reach it.</li>' +
       '<li><b>Payoff:</b> $1K per dot of the shortest track route from where your trip started.</li>' +
