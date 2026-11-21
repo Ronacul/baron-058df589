@@ -2,6 +2,7 @@
 (function () {
   'use strict';
   const M = window.BARON_MAPS.EU, B = Baron(M), P = B.P, NS = 'http://www.w3.org/2000/svg';
+  const ERA = M.era || { id: 'classic', label: 'Classic', year: '', upgrade: '' + UP + '', short: 'OE', icon: 'steam' }, UP = ERA.upgrade, UPS = ERA.short;
   const PALETTES = { classic: ['#d7263d', '#1b6ec2', '#2e9e4f', '#e08e0b', '#7b3fb0', '#0f9aa6'], safe: ['#d55e00', '#0072b2', '#009e73', '#e8b800', '#cc79a7', '#444444'], bold: ['#e6194b', '#3a49d8', '#1a9e3c', '#ff8c00', '#8e24aa', '#111111'] };
   let COLORS = PALETTES.classic;
   const SAVE = 'baron.eu.save.v1', PREF = 'baron.eu.prefs.v2';
@@ -217,6 +218,33 @@
       const t4 = el('text', { x: q.x + CW - 12, y: q.y + 68, 'text-anchor': 'end', 'font-size': 12.5, 'font-weight': 700, fill: sub, 'font-family': 'sans-serif' }, gg); t4.textContent = own ? g.players[o].name.slice(0, 9) : 'For sale';
     });
   }
+  /* the train glyph of the era: a steam locomotive, a streamlined express or a box-nosed Trans-Europ train */
+  function drawTrain(parent, kind, col, ink, letter, scale) {
+    const g2 = el('g', scale ? { transform: 'scale(' + scale + ')' } : {}, parent), O = { stroke: ink, 'stroke-width': 2.4, 'stroke-linejoin': 'round' }, wheel = (x, r) => el('circle', Object.assign({ cx: x, cy: 10, r: r || 5, fill: '#fff' }, O), g2);
+    if (kind === 'streamline') {
+      el('path', Object.assign({ d: 'M-32,8 L-32,-8 Q-32,-14 -25,-14 L6,-14 Q26,-12 33,4 L33,8 Z', fill: col }, O), g2);
+      el('rect', { x: -26, y: -9, width: 24, height: 7, rx: 2, fill: '#fff', opacity: 0.92 }, g2); el('path', { d: 'M8,-10 Q20,-9 25,-2 L8,-2 Z', fill: '#fff', opacity: 0.92 }, g2);
+      [-22, -8, 8, 22].forEach(x => wheel(x, 4.5));
+    } else if (kind === 'tee') {
+      el('path', Object.assign({ d: 'M-32,8 L-32,-12 L10,-12 L33,1 L33,8 Z', fill: col }, O), g2);
+      el('rect', { x: -32, y: -1, width: 65, height: 4, fill: '#fff', opacity: 0.95 }, g2); el('rect', { x: -26, y: -9, width: 28, height: 6, rx: 1.5, fill: '#fff', opacity: 0.92 }, g2);
+      [-22, -8, 8, 22].forEach(x => wheel(x, 4.5));
+    } else {
+      el('rect', Object.assign({ x: -30, y: -14, width: 16, height: 22, rx: 2, fill: col }, O), g2);
+      el('rect', Object.assign({ x: -16, y: -8, width: 46, height: 14, rx: 6, fill: col }, O), g2);
+      el('rect', Object.assign({ x: 15, y: -19, width: 8, height: 12, fill: col }, O), g2); el('rect', { x: 12, y: -21, width: 14, height: 4, rx: 1.5, fill: ink }, g2);
+      el('circle', Object.assign({ cx: -1, cy: -9, r: 6, fill: col }, O), g2); el('polygon', Object.assign({ points: '30,4 38,11 30,11', fill: col }, O), g2);
+      [-20, -6, 8, 22].forEach(x => wheel(x, 5.5));
+    }
+    if (letter) { const t2 = el('text', { x: kind === 'steam' ? -22 : -14, y: kind === 'steam' ? 1 : 4, 'text-anchor': 'middle', 'font-size': 17, 'font-weight': 800, fill: '#fff', stroke: ink, 'stroke-width': 3, 'paint-order': 'stroke', 'font-family': 'sans-serif' }, g2); t2.textContent = letter; }
+    return g2;
+  }
+  function drawEra() { // the plaque in the corner of the board that says which era was chosen
+    const box = $('era'); if (!box) return; box.innerHTML = '';
+    const s = el('svg', { viewBox: '-36 -24 72 44', width: 58, height: 36 }, null); box.appendChild(s); drawTrain(s, ERA.icon || 'steam', '#b8860b', '#3a2a00', '', 0.95);
+    const d = document.createElement('div'); d.innerHTML = '<b>' + esc(ERA.year ? ERA.year + ' &middot; ' : '') + esc(ERA.label || 'Classic') + '</b><span>Fast train: ' + esc(UP) + '</span>'; box.appendChild(d); box.title = 'Era: ' + (ERA.label || 'Classic') + '. The upgrade is called the ' + UP + '.';
+    const h1 = document.querySelector('header h1'); if (h1) h1.textContent = 'Iron Meridian' + (ERA.year ? ' · ' + ERA.year : '');
+  }
   /* ---------- dynamic map layers ---------- */
   /* ---------- dynamic map layers ---------- */
   function updateMap() {
@@ -256,8 +284,9 @@
         const pos = B.tokenPos(g, pl), key = pos.join(','), n = seen[key] = (seen[key] || 0) + 1, off = (n - 1) * 11;
         const tg = el('g', { transform: 'translate(' + (pos[0] + off) + ',' + (pos[1] - off) + ')', 'pointer-events': 'none' }, layers.tokens);
         if (flashId === pl.id || flashIds.indexOf(pl.id) >= 0) { const ring = el('circle', { r: 16, fill: 'none', stroke: col, 'stroke-width': 6 }, tg); ring.classList.add('ring'); }
-        el('circle', { r: 16, fill: col, stroke: pl.id === g.turn ? '#000' : '#fff', 'stroke-width': pl.id === g.turn ? 4 : 2.5 }, tg);
-        const t = el('text', { 'text-anchor': 'middle', y: 6, 'font-size': 18, 'font-weight': 800, fill: '#fff', 'font-family': 'sans-serif' }, tg); t.textContent = (pl.name[0] || '?').toUpperCase();
+        if (pl.sc) drawTrain(tg, ERA.icon || 'steam', col, pl.id === g.turn ? '#000' : '#fff', (pl.name[0] || '?').toUpperCase(), 0.8);
+        else { el('circle', { r: 16, fill: col, stroke: pl.id === g.turn ? '#000' : '#fff', 'stroke-width': pl.id === g.turn ? 4 : 2.5 }, tg);
+          const t = el('text', { 'text-anchor': 'middle', y: 6, 'font-size': 18, 'font-weight': 800, fill: '#fff', 'font-family': 'sans-serif' }, tg); t.textContent = (pl.name[0] || '?').toUpperCase(); }
       }
       if (pl.dest) { // the player's letter next to their destination
         const dc = P.city[pl.dest], dn = (seen['d' + pl.dest] = (seen['d' + pl.dest] || 0) + 1);
@@ -353,7 +382,7 @@
       const col = COLORS[p.id % COLORS.length], nrail = M.rails.filter(r => g.owner[r.code] === p.id).length;
       const left = p.dest ? p.path.slice(p.h).reduce((s, st) => s + st.dots, 0) - p.dd : 0;
       const trip = p.dest ? esc(p.origin || p.loc) + ' &rarr; <b>' + esc(p.dest) + '</b> <span class="muted">' + left + '</span>' : (p.home ? '<span class="muted">at ' + esc(p.loc) + '</span>' : '');
-      return '<tr class="' + (p.id === g.turn && g.phase !== 'over' ? 'on' : '') + '" style="--pc:' + col + '"><td class="nm"><span class="dot" style="background:' + col + '"></span><b>' + esc(p.name) + '</b>' + (p.bot ? ' <span class="tag">bot</span>' : '') + (p.sc ? ' <span class="tag sc" title="Orient Express: after an arrival, a new destination and one extra die the same turn">OE</span>' : '') + (p.goingHome ? ' <span class="tag home">home!</span>' : '') + '<div class="muted">' + nrail + ' rail' + (nrail === 1 ? '' : 's') + ' &middot; ' + p.trips + ' trips</div></td>' +
+      return '<tr class="' + (p.id === g.turn && g.phase !== 'over' ? 'on' : '') + '" style="--pc:' + col + '"><td class="nm"><span class="dot" style="background:' + col + '"></span><b>' + esc(p.name) + '</b>' + (p.bot ? ' <span class="tag">bot</span>' : '') + (p.sc ? ' <span class="tag sc" title="' + UP + ': after an arrival, a new destination and one extra die the same turn">' + UPS + '</span>' : '') + (p.goingHome ? ' <span class="tag home">home!</span>' : '') + '<div class="muted">' + nrail + ' rail' + (nrail === 1 ? '' : 's') + ' &middot; ' + p.trips + ' trips</div></td>' +
         '<td class="cs' + (p.cash < 0 ? ' neg' : '') + '">' + money(p.cash) + '</td><td>' + (p.home ? esc(p.home) : '&hellip;') + '</td><td>' + trip + '</td></tr>';
     }).join('') + '</table>';
   }
@@ -393,7 +422,7 @@
       if (g.stage === 'city') h += '<button class="b pri big dicebtn" data-act="rollcity">&#127922; Roll 2 of 2: city in ' + esc(g.region) + (P.regionCities[g.region] && P.regionCities[g.region].length === 1 ? ' (only one city)' : '') + '</button>' + (prefs.manual ? manualForm('city') : '');
     } else if (g.phase === 'route') {
       const left = p.path.slice(p.h).reduce((s, st) => s + st.dots, 0) - p.dd;
-      h += '<button class="b pri big dicebtn" data-act="rollmove">&#127922; Roll to move (' + (g.bonus ? '1 die, Orient Express' : '2 dice') + ')</button>' + (prefs.manual ? '<div class="manual"><span class="muted">Dots by hand:</span> <input id="mdots" type="number" min="1" max="18" value="7"> <button class="b" data-act="mmove">Use</button></div>' : '') +
+      h += '<button class="b pri big dicebtn" data-act="rollmove">&#127922; Roll to move (' + (g.bonus ? '1 die, ' + UP + '' : '2 dice') + ')</button>' + (prefs.manual ? '<div class="manual"><span class="muted">Dots by hand:</span> <input id="mdots" type="number" min="1" max="18" value="7"> <button class="b" data-act="mmove">Use</button></div>' : '') +
         '<div class="trip">To <b>' + esc(p.dest) + '</b> &middot; ' + left + ' dots left &middot; pays ' + money(B.payoff(p.origin, p.dest)) + '</div>' + routeBox(p);
     } else if (g.phase === 'walk' && g.walk) {
       const w = g.walk, fe = B.walkFees(g);
@@ -402,8 +431,8 @@
         '<div class="row"><button class="b" data-act="undo"' + (w.segs.length ? '' : ' disabled') + '>Undo a pip</button> <button class="b" data-act="autowalk"' + (w.done ? ' disabled' : '') + '>Fill the rest along the route</button></div>' +
         '<button class="b pri big" data-act="finish"' + (w.done ? '' : ' disabled') + '>Finish move</button>';
     } else if (g.phase === 'buy') {
-      h += '<div class="arr">' + esc(g.log[g.log.length - 1] ? '' : '') + 'Arrived. ' + (g.bought ? 'You have made your one purchase this turn.' : 'You may make one purchase this turn: a rail from the list below' + (g.cfg.superChief > 0 && !p.sc ? ' or the Orient Express' : '') + '.') + (p.scNew ? ' The Orient Express bonus starts next turn.' : '') + '</div>' +
-        '<div class="row">' + (B.canBuyChief(g, p.id) ? '<button class="b" data-act="chief">Buy Orient Express ' + money(g.cfg.superChief) + '</button> ' : '') + (B.canBonus(g) ? '<button class="b pri big" data-act="bonus">&#127922; ' + (p.sc ? 'Orient Express' : 'Double six') + ': roll a new destination + one die</button>' : '') + '<button class="b' + (B.canBonus(g) ? '' : ' pri') + ' big" data-act="end">End turn</button></div>';
+      h += '<div class="arr">' + esc(g.log[g.log.length - 1] ? '' : '') + 'Arrived. ' + (g.bought ? 'You have made your one purchase this turn.' : 'You may make one purchase this turn: a rail from the list below' + (g.cfg.superChief > 0 && !p.sc ? ' or the ' + UP + '' : '') + '.') + (p.scNew ? ' The ' + UP + ' bonus starts next turn.' : '') + '</div>' +
+        '<div class="row">' + (B.canBuyChief(g, p.id) ? '<button class="b" data-act="chief">Buy ' + UP + ' ' + money(g.cfg.superChief) + '</button> ' : '') + (B.canBonus(g) ? '<button class="b pri big" data-act="bonus">&#127922; ' + (p.sc ? '' + UP + '' : 'Double six') + ': roll a new destination + one die</button>' : '') + '<button class="b' + (B.canBonus(g) ? '' : ' pri') + ' big" data-act="end">End turn</button></div>';
     }
     return h;
   }
@@ -472,7 +501,7 @@
   }
   function render() {
     if (!g) return;
-    const pb = $('pipbox'); if (g.phase === 'walk' && g.walk) { pb.hidden = false; pb.innerHTML = '<b>' + g.walk.rem + '</b><span>pip' + (g.walk.rem === 1 ? '' : 's') + ' left of ' + g.walk.n + (g.bonus ? ' (Orient Express die)' : '') + '</span>'; } else pb.hidden = true;
+    const pb = $('pipbox'); if (g.phase === 'walk' && g.walk) { pb.hidden = false; pb.innerHTML = '<b>' + g.walk.rem + '</b><span>pip' + (g.walk.rem === 1 ? '' : 's') + ' left of ' + g.walk.n + (g.bonus ? ' (' + UP + ' die)' : '') + '</span>'; } else pb.hidden = true;
     $('round').textContent = 'Round ' + g.round;
     $('cash').innerHTML = g.players.map(p => '<div class="cc' + (p.id === g.turn && g.phase !== 'over' ? ' on' : '') + '" style="border-color:' + COLORS[p.id % COLORS.length] + '"><b>' + esc(p.name) + '</b><span class="' + (p.cash < 0 ? 'neg' : '') + '">' + money(p.cash) + '</span></div>').join('');
     $('players').innerHTML = playersHtml(); $('actions').innerHTML = actionsHtml(); $('dicebox').innerHTML = diceHtml(); $('rails').innerHTML = railsHtml(); $('log').innerHTML = logHtml(); renderTip();
@@ -639,7 +668,8 @@
       const trail = [start].concat(pts.slice(0, i)); if (trail.length > 1) el('polyline', { points: trail.map(q => q.join(',')).join(' '), fill: 'none', stroke: col, 'stroke-width': 10, opacity: 0.85, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, layers.anim);
       pts.slice(0, i).forEach(q => el('circle', { cx: q[0], cy: q[1], r: 4, fill: '#fff', stroke: col, 'stroke-width': 2 }, layers.anim));
       const pos = i ? pts[i - 1] : start, tg = el('g', { transform: 'translate(' + pos[0] + ',' + pos[1] + ')', 'pointer-events': 'none' }, layers.anim);
-      el('circle', { r: 17, fill: col, stroke: '#000', 'stroke-width': 4 }, tg); const tx = el('text', { 'text-anchor': 'middle', y: 6, 'font-size': 19, 'font-weight': 800, fill: '#fff', 'font-family': 'sans-serif' }, tg); tx.textContent = (snap.name[0] || '?').toUpperCase();
+      if (p.sc) drawTrain(tg, ERA.icon || 'steam', col, '#000', (snap.name[0] || '?').toUpperCase(), 0.85);
+      else { el('circle', { r: 17, fill: col, stroke: '#000', 'stroke-width': 4 }, tg); const tx = el('text', { 'text-anchor': 'middle', y: 6, 'font-size': 19, 'font-weight': 800, fill: '#fff', 'font-family': 'sans-serif' }, tg); tx.textContent = (snap.name[0] || '?').toUpperCase(); }
       const left = mv.rolled - i; pb.innerHTML = '<span>' + esc(snap.name) + ' rolled ' + dice + ' = ' + mv.rolled + (g.dbl6 && !g.bonus ? ' DOUBLE SIX' : '') + '</span><b>' + left + '</b><span>pip' + (left === 1 ? '' : 's') + ' left' + (i === pts.length && left > 0 ? ' (lost on arrival)' : '') + '</span>';
     };
     const finish = () => { anim = null; animHide = -1; layers.anim.innerHTML = ''; afterAction(); };
@@ -711,7 +741,7 @@
     d.innerHTML = '<h2>New game</h2><div class="presets"><button class="b" data-pre="1">You vs 1 bot</button><button class="b" data-pre="2">You vs 2 bots</button><button class="b" data-pre="3">3 people, one device</button><button class="b" data-pre="4">Watch 3 bots</button></div>' +
       '<div id="prow"></div><div class="grid"><label>Players <select id="np">' + [2, 3, 4, 5, 6].map(n => '<option' + (n === 3 ? ' selected' : '') + '>' + n + '</option>').join('') + '</select></label>' +
       '<label>Start cash ($K) <input id="cs" type="number" value="' + M.cfg.start / 1000 + '"></label><label>Win cash ($K) <input id="cw" type="number" value="' + M.cfg.win / 1000 + '"></label>' +
-      '<label>Orient Express ($K, 0 = none) <input id="cc" type="number" value="' + M.cfg.superChief / 1000 + '"></label><label>Seed (blank = random) <input id="sd" type="text" placeholder="e.g. 42"></label></div>' +
+      '<label>' + UP + ' ($K, 0 = none) <input id="cc" type="number" value="' + M.cfg.superChief / 1000 + '"></label><label>Seed (blank = random) <input id="sd" type="text" placeholder="e.g. 42"></label></div>' +
       '<div class="row"><button class="b pri" id="go">Start</button> <button class="b" id="cancel">Cancel</button>' + (saved ? ' <button class="b" id="resume">Resume saved game</button>' : '') + ' <label class="ld">Load game file <input type="file" id="lf" accept=".json"></label></div>';
     const rows = () => { const n = +$('np').value, pr = $('prow'); const old = [...pr.querySelectorAll('.pr')].map(r => [r.querySelector('input').value, r.querySelector('select').value]); pr.innerHTML = ''; for (let i = 0; i < n; i++) { const o = old[i] || [NAMES[i], i === 0 ? 'human' : 'bot']; pr.insertAdjacentHTML('beforeend', '<div class="pr"><span class="dot" style="background:' + COLORS[i] + '"></span><input value="' + esc(o[0]) + '"> <select><option value="human"' + (o[1] === 'human' ? ' selected' : '') + '>person</option><option value="bot"' + (o[1] === 'bot' ? ' selected' : '') + '>bot</option></select></div>'); } };
     rows(); $('np').onchange = rows;
@@ -731,19 +761,19 @@
     d.innerHTML = '<h2>How this playtest works</h2><ul class="rules"><li><b>Goal:</b> collect ' + money(c.win) + ' (editable) at an arrival, then get back to your home city first.</li>' +
       '<li><b>Destination:</b> coloured die odd/even + two white dice pick a region, then a second roll picks the city. Roll your own region and you may choose any region.</li>' +
       '<li><b>Moving:</b> roll 2 dice of dots a turn. Dots left over at arrival are lost. Tap pips to pick your own path; where two tracks cross you may change tracks (you pay the fee of any track you ride).</li>' +
-      '<li><b>Orient Express (' + money(c.superChief) + '):</b> after an arrival you collect, buy, roll a new destination and move one more die the same turn. Fees already paid that turn are not paid again.</li>' +
-      '<li><b>Double six:</b> rolling two sixes on the movement dice gives you the Orient Express bonus for that turn (the bonus die cannot chain).</li>' +
+      '<li><b>' + UP + ' (' + money(c.superChief) + '):</b> after an arrival you collect, buy, roll a new destination and move one more die the same turn. Fees already paid that turn are not paid again.</li>' +
+      '<li><b>Double six:</b> rolling two sixes on the movement dice gives you the ' + UP + ' bonus for that turn (the bonus die cannot chain).</li>' +
       '<li><b>Start of a game:</b> everyone rolls one die to go first (ties roll again among themselves). Seating order never changes: the winner starts and play goes round the table from there. Home cities are rolled the same way, starting with the winner.</li>' +
-      '<li><b>One purchase</b> per turn: a rail or the Orient Express. An Orient Express you buy starts working next turn.</li>' +
+      '<li><b>One purchase</b> per turn: a rail or the ' + UP + '. The upgrade you buy starts working next turn.</li>' +
       '<li><b>Declare:</b> at ' + money(c.win) + ' you may declare for home instead of rolling a destination (or keep rolling if it looks risky). If another player who is not running home crosses your spot (any pip or city) on their own move, you are caught (a runner can cross anyone on their own turn without being caught): you pay them ' + money(c.catchFee) + ' and must run a new destination (paid from where you declared). Being caught is not your turn: you roll a destination on your next turn and must reach it before declaring again. You must stop on your destination when you reach it.</li>' +
       '<li><b>Legacy prices:</b> a player who is on a track, or standing at the end of one, when another player buys it keeps paying the old price (the public 1K) for that track until they reach their destination. If the purchase sells the last rail, players already on their way keep paying 5K instead of 10K until they arrive.</li>' +
       '<li><b>Buying into a destination:</b> buy a rail that serves another player&rsquo;s destination before they get there and they pay the toll (and get a &ldquo;Lucanored&rdquo; popup).</li>' +
       '<li><b>Payoff:</b> $1K per dot of the shortest track route from where your trip started.</li>' +
       '<li><b>Fees, once a turn:</b> ' + money(c.feePublic) + ' to the bank if you use any public rail; ' + money(c.feePrivate) + ' to each owner whose rails you use (' + money(c.feeAllSold) + ' once every rail is sold). Your own rails are free.</li>' +
-      '<li><b>Buying:</b> after each arrival you may buy rails (and the Orient Express). Owned rails glow in the owner&rsquo;s colour.</li>' +
+      '<li><b>Buying:</b> after each arrival you may buy rails (and the ' + UP + '). Owned rails glow in the owner&rsquo;s colour.</li>' +
       '<li><b>Short of cash:</b> rails are sold back to the bank at half price, cheapest first.</li>' +
       '<li><b>Red squares</b> are zapper cities: only one rail serves them.</li>' +
-      '<li><b>Assumed, not from a rule book:</b> leftover dots lost on arrival, Orient Express buyable at any arrival and its extra die only after an arrival, what counts as a catch (the catcher crossing the runner&rsquo;s spot), forced-sale rule, bot behaviour. Tell me what to change.</li>' +
+      '<li><b>Assumed, not from a rule book:</b> leftover dots lost on arrival, ' + UP + ' buyable at any arrival and its extra die only after an arrival, what counts as a catch (the catcher crossing the runner&rsquo;s spot), forced-sale rule, bot behaviour. Tell me what to change.</li>' +
       '<li><b>Dice by hand:</b> tick the box in the toolbar to type in your physical dice instead.</li><li><b>Export</b> at the end saves every trip as JSON for the tracker.</li></ul><p class="muted">Iron Meridian is an independent game inspired by classic railroad dice-and-destination games. It is not affiliated with or endorsed by any publisher. The map, tables, text and names are our own.</p><div class="row"><button class="b pri" id="ok">Close</button></div>';
     $('ok').onclick = () => d.close(); d.showModal();
   }
@@ -756,8 +786,8 @@
   $('bsave').onclick = () => { if (g) download('iron-meridian-save.json', JSON.stringify(g)); };
   $('hm').checked = prefs.homes !== false; $('stp').checked = prefs.step !== false; $('tg').checked = prefs.tags !== false; $('crd').checked = !!prefs.cards; $('trl').checked = prefs.trails !== false; $('pln').checked = prefs.plain !== false; $('pal').value = prefs.palette || 'classic'; $('thk').checked = !!prefs.thick; $('tgt').checked = !!prefs.tight; $('spd').value = String(prefs.speed); $('fol').checked = prefs.follow; $('man').checked = prefs.manual;
 
-  buildMap(); if (prefs.tight || prefs.cards) applyTight(); updateMap();
-  window.baronDebug = { B, laneOrders, celebrateSix, toast, floatMoney, flyMoney, lucanored, get g() { return g; }, set g(v) { g = v; }, render, afterAction, handleMapClick, selectRail, closeTip, turnIntro };
+  buildMap(); drawEra(); if (prefs.tight || prefs.cards) applyTight(); updateMap();
+  window.baronDebug = { B, ERA, drawEra, drawTrain, el, laneOrders, celebrateSix, toast, floatMoney, flyMoney, lucanored, get g() { return g; }, set g(v) { g = v; }, render, afterAction, handleMapClick, selectRail, closeTip, turnIntro };
   let saved = null; try { saved = localStorage.getItem(SAVE); } catch (e) { /* none */ }
   if (saved) { try { g = JSON.parse(saved); afterAction(); } catch (e) { openSetup(); } } else { openSetup(); }
 })();

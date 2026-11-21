@@ -52,6 +52,9 @@ header{display:flex;gap:8px;align-items:center;padding:6px 10px;background:#2239
 .cc.bump-in{animation:bumpin .8s}.cc.bump-out{animation:bumpout .8s}
 @keyframes bumpin{0%,100%{box-shadow:0 0 0 0 #18862f00;transform:none}35%{box-shadow:0 0 0 6px #18862fcc,0 0 18px #3ddc5a;transform:scale(1.12)}}
 @keyframes bumpout{0%,100%{box-shadow:0 0 0 0 #c0392b00;transform:none}35%{box-shadow:0 0 0 6px #c0392bcc,0 0 18px #ff6d62;transform:scale(.94)}}
+#era{position:absolute;right:8px;bottom:8px;z-index:12;display:flex;align-items:center;gap:6px;background:linear-gradient(135deg,#fff6d2,#f1dc99);border:3px solid #9a7200;border-radius:10px;padding:3px 10px 3px 6px;box-shadow:0 3px 10px #0005;pointer-events:none;opacity:.96}
+#era b{display:block;font-size:14px;color:#3a2a00;white-space:nowrap}#era span{font-size:11px;color:#6b4e00;white-space:nowrap}
+@media (max-width:520px){#era{transform:scale(.82);transform-origin:right bottom}}
 .railg.owned{display:none}
 .mfloat{position:fixed;z-index:100;transform:translateX(-50%);font-weight:900;font-size:22px;pointer-events:none;text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 6px #fff;animation:mflo 2.3s ease-out forwards;opacity:0}
 .mfloat.up{color:#18862f}.mfloat.dn{color:#c0392b}
@@ -167,6 +170,7 @@ dialog h2{margin-top:0}.rules li{margin-bottom:5px}
    <div id="tip" hidden></div>
    <div id="pipbox" hidden></div>
    <div id="toast" hidden></div>
+   <div id="era"></div>
    <div id="rollov" hidden><div class="rbox"><div id="rt1"></div><div id="rdice"></div><div id="rt2"></div><div class="sk">tap to skip</div></div></div>
    <div class="mapctl"><button id="zin" title="Zoom in">+</button><button id="zout" title="Zoom out">&minus;</button><button id="zall" title="Whole map">&#8962;</button><button id="ztight" title="Tight map: playable area only">&#9635;</button><button id="znow" title="Centre on the player">&#9678;</button></div>
   </section>
