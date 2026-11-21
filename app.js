@@ -118,6 +118,7 @@
     (M.tags || []).forEach(t => {
       const r = P.rail[t.code], o = g ? g.owner[t.code] : undefined, own = o !== undefined, oc = own ? COLORS[o % COLORS.length] : null, w = 10 + 8.4 * t.code.length;
       const tg = el('g', { 'data-hit': t.code, style: 'cursor:pointer' }, layers.tags);
+      if (hi === t.code) el('rect', { x: t.x - w / 2 - 6, y: t.y - 15, width: w + 12, height: 30, rx: 8, fill: '#ffd400', stroke: '#111', 'stroke-width': 2.5 }, tg);
       el('rect', { x: t.x - w / 2, y: t.y - 9, width: w, height: 18, rx: 4, fill: own ? oc : '#fff', stroke: own ? '#111' : r.color, 'stroke-width': own ? 3 : (r.premium ? 2.6 : 1.8) }, tg);
       const tx = el('text', { x: t.x, y: t.y + 4.6, 'text-anchor': 'middle', 'font-size': 13, 'font-weight': 800, fill: own ? '#fff' : (r.premium ? r.color : '#222'), 'font-family': 'sans-serif' }, tg); tx.textContent = t.code;
     });
@@ -151,6 +152,7 @@
     M.rails.forEach(r => {
       const q = L.pos[r.code]; if (!q) return; const o = g ? g.owner[r.code] : undefined, own = o !== undefined, oc = own ? COLORS[o % COLORS.length] : null, ink = own ? '#fff' : '#222', sub = own ? '#fff' : '#555';
       const gg = el('g', { 'data-hit': r.code, style: 'cursor:pointer' }, layers.slots);
+      if (hi === r.code) { el('rect', { x: q.x - 9, y: q.y - 9, width: CW + 18, height: CH + 18, rx: 14, fill: '#ffd400', stroke: '#111', 'stroke-width': 3 }, gg); }
       const bx = el('rect', { x: q.x, y: q.y, width: CW, height: CH, rx: 8, fill: own ? oc : '#fffaf0', stroke: own ? '#111' : '#8a8370', 'stroke-width': own ? 4 : 2 }, gg); if (!own) bx.setAttribute('stroke-dasharray', '9 6');
       const lw = Math.min(r.w * 1.8, 9), dash = r.dash ? r.dash.split(/[ ,]+/).map(x => (+x * 1.7).toFixed(1)).join(' ') : ''; // the track as drawn on the map: colour, thickness, dotted or dashed
       el('line', { x1: q.x + 14, y1: q.y + 7, x2: q.x + 14, y2: q.y + CH - 7, stroke: '#fff', 'stroke-width': lw + 3 }, gg);
@@ -348,11 +350,12 @@
   }
   /* rails grouped like the printed map: the cross-region ones first, then the left side (British, France, Iberia, Italy), then the right (Scandinavia, Germanic, Alpine, Balkans) */
   const GROUP_ORDER = ['British Isles', 'France-Benelux', 'Iberia', 'Italy', 'Scandinavia-Baltic', 'Germanic Core', 'Alpine-Danube-Poland', 'Balkans & Anatolia'];
-  /* a rail with half or more of its cities in one region is filed under that region; the rest span regions */
+  /* a rail with more than half of its cities in one region is filed under that region; the rest span regions. These are always cross-region: */
+  const CROSS = { CIWL: 1, LNER: 1, PREUSS: 1 };
   const groupMemo = {};
   function groupOf(r) {
-    if (groupMemo[r.code]) return groupMemo[r.code]; let name = r.home;
-    if (r.premium) { const cs = [...(P.rail[r.code].cities || [])], by = {}; cs.forEach(c => { const rg = P.city[c] && P.city[c].r; by[rg] = (by[rg] || 0) + 1; }); name = 'Cross-region'; Object.keys(by).forEach(k => { if (by[k] * 2 >= cs.length) name = k; }); }
+    if (groupMemo[r.code]) return groupMemo[r.code]; let name = r.premium ? 'Cross-region' : r.home;
+    if (r.premium && !CROSS[r.code]) { const cs = [...(P.rail[r.code].cities || [])], by = {}; cs.forEach(c => { const rg = P.city[c] && P.city[c].r; by[rg] = (by[rg] || 0) + 1; }); name = 'Cross-region'; Object.keys(by).forEach(k => { if (by[k] * 2 > cs.length) name = k; }); }
     return (groupMemo[r.code] = name);
   }
   function railsHtml() {
@@ -369,15 +372,15 @@
     return '<table class="rt"><tr><th></th><th>Rail</th><th>Price</th><th>Owner</th></tr>' + rows.map(r => {
       const o = g ? g.owner[r.code] : undefined, can = g && !p.bot && B.canBuy(g, p.id, r.code);
       const sw = '<svg width="38" height="10"><line x1="2" y1="5" x2="36" y2="5" stroke="' + r.color + '" stroke-width="' + Math.min(r.w, 5) + '"' + (r.dash ? ' stroke-dasharray="' + r.dash + '"' : '') + '/></svg>';
-      return '<tr data-rail="' + r.code + '" class="' + (r.premium ? 'prem' : '') + '"><td>' + sw + '</td><td><b>' + r.code + '</b> <span class="muted">' + esc(r.name) + '</span></td><td>' + money(r.price * M.unit) + '</td><td>' +
+      return '<tr data-rail="' + r.code + '" class="' + (r.premium ? 'prem' : '') + (hi === r.code ? ' sel' : '') + '"><td>' + sw + '</td><td><b>' + r.code + '</b> <span class="muted">' + esc(r.name) + '</span></td><td>' + money(r.price * M.unit) + '</td><td>' +
         (o !== undefined ? '<span class="own" style="background:' + COLORS[o % COLORS.length] + '">' + esc(g.players[o].name) + '</span>' : (can ? '<button class="b buy" data-act="buy" data-r="' + r.code + '">Buy</button>' : '<span class="muted">public</span>')) + '</td></tr>';
     }).join('') + '</table>';
   }
   function logHtml() {
     return g.log.slice(-60).reverse().map(l => '<div class="lg"' + (l.p >= 0 ? ' style="border-left-color:' + COLORS[l.p % COLORS.length] + '"' : '') + '><span class="muted">R' + l.round + '</span> ' + esc(l.t) + '</div>').join('');
   }
-  function showTip(t) { tip = t; renderTip(); updateMap(); }
-  function closeTip() { tip = null; hi = null; renderTip(); updateMap(); }
+  function showTip(t) { tip = t; renderTip(); updateMap(); if (g) $('rails').innerHTML = railsHtml(); }
+  function closeTip() { tip = null; hi = null; renderTip(); updateMap(); if (g) $('rails').innerHTML = railsHtml(); }
   function selectRail(code) { hi = code; showTip({ type: 'rail', code }); }
   function ownerName(code) { const o = g.owner[code]; return o === undefined ? null : g.players[o]; }
   function feeText(code) { const o = ownerName(code); return o ? 'owned by <b style="color:' + COLORS[o.id % COLORS.length] + '">' + esc(o.name) + '</b> &middot; fee ' + money(B.allSold(g) ? M.cfg.feeAllSold : M.cfg.feePrivate) : '<b>public</b> &middot; fee ' + money(M.cfg.feePublic) + ' to the bank'; }
