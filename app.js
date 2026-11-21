@@ -300,6 +300,7 @@
         else { el('circle', { r: 16, fill: col, stroke: pl.id === g.turn ? '#000' : '#fff', 'stroke-width': pl.id === g.turn ? 4 : 2.5 }, tg);
           const t = el('text', { 'text-anchor': 'middle', y: 6, 'font-size': 18, 'font-weight': 800, fill: '#fff', 'font-family': 'sans-serif' }, tg); t.textContent = (pl.name[0] || '?').toUpperCase(); }
       }
+      if (pl.goingHome && pl.id !== animHide) { const rp2 = B.tokenPos(g, pl), hf = el('text', { x: rp2[0], y: rp2[1] - 24, 'text-anchor': 'middle', 'font-size': 26, 'pointer-events': 'none' }, layers.tokens); hf.textContent = '🏠'; const hh = P.city[pl.home]; if (hh) { const hr = el('circle', { cx: hh.x, cy: hh.y, r: 36, fill: 'none', stroke: col, 'stroke-width': 6, 'stroke-dasharray': '10 7', 'pointer-events': 'none' }, layers.route); hr.classList.add('homering'); } }
       if (pl.dest) { // the player's letter next to their destination
         const dc = P.city[pl.dest], dn = (seen['d' + pl.dest] = (seen['d' + pl.dest] || 0) + 1);
         const bg = el('g', { transform: 'translate(' + (dc.x + 26 + (dn - 1) * 18) + ',' + (dc.y + 30) + ')' }, layers.route);
@@ -443,7 +444,8 @@
         '</table><div class="row"><button class="b" data-act="export">Export game log (JSON)</button> <button class="b pri" data-act="new">New game</button></div>';
     }
     h += '<div class="who"><span class="dot" style="background:' + COLORS[p.id % COLORS.length] + '"></span><b>' + esc(p.name) + '</b>' + (p.bot ? ' (bot)' : '') + ' &mdash; round ' + g.round + '</div>';
-    if (p.bot) return h + '<div class="muted">' + (paused ? 'Paused.' : 'Bot is playing&hellip;') + '</div><div class="row"><button class="b" data-act="pause">' + (paused ? 'Resume bots' : 'Pause bots') + '</button> <button class="b" data-act="skip">Skip to the next human</button></div>';
+    if (ONLINE.on && !p.bot && !mine()) return h + '<div class="muted">Waiting for <b>' + esc(p.name) + '</b> to play&hellip;</div>';
+    if (p.bot) return h + '<div class="muted">' + (paused ? 'Paused.' : 'Bot is playing&hellip;') + '</div>' + (ONLINE.on ? '' : '<div class="row"><button class="b" data-act="pause">' + (paused ? 'Resume bots' : 'Pause bots') + '</button> <button class="b" data-act="skip">Skip to the next human</button></div>');
     if (g.phase === 'order') h += rollUI('order', 'rollorder', 'Roll a die to go first (' + esc(p.name) + ')');
     else if (g.phase === 'home') h += '<div>Roll for your home city (region, then city).</div>' + (prefs.manual ? padHtml(homeFaces ? 'home2' : 'home1', homeFaces ? 'Home city: the second roll' : 'Home city: the first roll (region)') : '<button class="b pri big" data-act="rollhome">&#127922; Roll for home city (' + esc(p.name) + ')</button>');
     else if (g.phase === 'dest') {
@@ -489,7 +491,7 @@
   function railTable(rows) {
     const p = g ? B.cur(g) : null;
     return '<table class="rt"><tr><th></th><th>Rail</th><th>Price</th><th>Owner</th></tr>' + rows.map(r => {
-      const o = g ? g.owner[r.code] : undefined, can = g && !p.bot && B.canBuy(g, p.id, r.code);
+      const o = g ? g.owner[r.code] : undefined, can = g && !p.bot && mine() && B.canBuy(g, p.id, r.code);
       const sw = '<svg width="38" height="10"><line x1="2" y1="5" x2="36" y2="5" stroke="' + r.color + '" stroke-width="' + Math.min(r.w, 5) + '"' + (r.dash ? ' stroke-dasharray="' + r.dash + '"' : '') + '/></svg>';
       return '<tr data-rail="' + r.code + '" class="' + (r.premium ? 'prem' : '') + (hi === r.code ? ' sel' : '') + '"><td>' + sw + '</td><td><b>' + r.code + '</b> <span class="muted">' + esc(r.name) + '</span></td><td>' + money(r.price * M.unit) + '</td><td>' +
         (o !== undefined ? '<span class="own" style="background:' + COLORS[o % COLORS.length] + '">' + esc(g.players[o].name) + '</span>' : (can ? '<button class="b buy" data-act="buy" data-r="' + r.code + '">Buy</button>' : '<span class="muted">public</span>')) + '</td></tr>';
@@ -507,7 +509,7 @@
     const box = $('tip'); if (!box) return; if (!tip || !g) { box.hidden = true; box.innerHTML = ''; return; }
     const p = B.cur(g); let h = '';
     if (tip.type === 'rail') {
-      const r = P.rail[tip.code], can = !p.bot && B.canBuy(g, p.id, r.code);
+      const r = P.rail[tip.code], can = !p.bot && mine() && B.canBuy(g, p.id, r.code);
       h = '<div class="tt"><span class="rc" style="border-color:' + r.color + '">' + r.code + '</span> <b>' + esc(r.name) + '</b><button class="x" data-act="closetip">&times;</button></div>' +
         '<div>Price ' + money(r.price * M.unit) + ' &middot; ' + feeText(r.code) + '</div><div class="muted">Serves ' + [...r.cities].map(esc).join(', ') + '</div>' +
         (can ? '<button class="b buy big2" data-act="buy" data-r="' + r.code + '">Buy ' + r.code + ' for ' + money(r.price * M.unit) + '</button>' : '');
@@ -519,29 +521,29 @@
   }
   function handleMapClick(t) {
     if (!t || !g || !t.closest || anim) return;
-    const pip = t.closest('[data-pip]');
-    if (pip && g.phase === 'walk') { B.stepWalk(g, +pip.getAttribute('data-pip')); render(); return; }
+    const pip = t.closest('[data-pip]'); if (pip && !mine()) return;
+    if (pip && g.phase === 'walk') { dispatch('pip', { i: +pip.getAttribute('data-pip') }); return; }
     const h = t.closest('[data-hit]'); if (h) { selectRail(h.getAttribute('data-hit')); return; }
     const c = t.closest('[data-city]');
     if (c) {
       const name = c.getAttribute('data-city'), p = B.cur(g);
-      if (g.phase === 'route' && !p.bot && p.dest && name !== p.dest && name !== p.loc) { B.toggleVia(g, name); closeTip(); render(); return; }
+      if (g.phase === 'route' && !p.bot && p.dest && name !== p.dest && name !== p.loc && mine()) { closeTip(); dispatch('via', { c: name }); return; }
       showTip({ type: 'city', name }); return;
     }
     closeTip();
   }
   function render() {
-    if (!g) return;
+    if (!g) return; routeMode = g.routeMode || routeMode;
     const pb = $('pipbox'); if (g.phase === 'walk' && g.walk) { pb.hidden = false; pb.innerHTML = '<b>' + g.walk.rem + '</b><span>pip' + (g.walk.rem === 1 ? '' : 's') + ' left of ' + g.walk.n + (g.bonus ? ' (' + UP + ' die)' : '') + '</span>'; } else pb.hidden = true;
     $('round').textContent = 'Round ' + g.round;
     $('cash').innerHTML = g.players.map(p => '<div class="cc' + (p.id === g.turn && g.phase !== 'over' ? ' on' : '') + '" style="border-color:' + COLORS[p.id % COLORS.length] + '"><b>' + esc(p.name) + '</b><span class="' + (p.cash < 0 ? 'neg' : '') + '">' + money(p.cash) + '</span></div>').join('');
     $('players').innerHTML = playersHtml(); $('actions').innerHTML = actionsHtml(); $('dicebox').innerHTML = diceHtml(); $('rails').innerHTML = railsHtml(); $('log').innerHTML = logHtml(); renderTip();
     updateMap(); autosave(); cashFloats(); turnBanner();
   }
-  function autosave() { try { if (g.phase === 'over') localStorage.removeItem(SAVE); else localStorage.setItem(SAVE, JSON.stringify(g)); } catch (e) { /* storage full or blocked */ } }
+  function autosave() { if (ONLINE.on) return; try { if (g.phase === 'over') localStorage.removeItem(SAVE); else localStorage.setItem(SAVE, JSON.stringify(g)); } catch (e) { /* storage full or blocked */ } }
 
   /* ---------- money floats, popups and celebrations ---------- */
-  let lastG = null, prevCash = null, seenArrival = 0, seenTaunt = 0; const floatCount = {};
+  let lastG = null, prevCash = null, seenArrival = 0, seenTaunt = 0, seenDecl = 0, seenWin = 0; const floatCount = {};
   function floatMoney(i, d) { // "-$5K" / "+$5K" rises from the player's cash chip
     const chip = document.querySelectorAll('#cash .cc')[i]; if (!chip) return;
     const r = chip.getBoundingClientRect(), k = (floatCount[i] = (floatCount[i] || 0) + 1), e = document.createElement('div');
@@ -577,6 +579,27 @@
     if (!big) return; const cols = ['#e6194b', '#ffd400', '#2e9e4f', '#1b6ec2', '#ff8c00', '#8e24aa'];
     for (let i = 0; i < 80; i++) { const c = document.createElement('i'); c.className = 'cf'; c.style.left = Math.random() * 100 + '%'; c.style.background = cols[i % cols.length]; c.style.animationDelay = (Math.random() * 0.6) + 's'; c.style.setProperty('--dx', (Math.random() * 200 - 100) + 'px'); w.appendChild(c); setTimeout(() => c.remove(), 3600); }
   }
+  /* a player declares for home: a centred banner, their home city and token light up, and a house flag rides on their token until they arrive or are caught */
+  function declareBanner(dc) {
+    const w = $('mapwrap'), pl = g.players[dc.id], col = COLORS[dc.id % COLORS.length], b = document.createElement('div'); b.className = 'dec'; b.style.borderColor = col;
+    b.innerHTML = '<div class="dh">&#127968;</div><div class="d1" style="color:' + col + '">' + esc(pl.name) + ' IS HEADING HOME!</div><div class="d2">' + esc(pl.name) + ' has <b>' + money(dc.cash) + '</b> and runs for <b>' + esc(dc.home) + '</b>.<br>Cross their path to catch them for ' + money(M.cfg.catchFee) + '.</div>';
+    w.appendChild(b); b.onclick = () => b.remove(); setTimeout(() => b.remove(), 4800);
+    flashIds = [dc.id]; flashCity(dc.home, col); updateMap(); setTimeout(() => { flashIds = []; if (g) updateMap(); }, 4500); introUntil = performance.now() + (prefs.speed <= 120 ? 600 : 2800);
+  }
+  /* a winner: trophy, fireworks over their home city, confetti and a summary until someone closes it */
+  function winCelebration(v) {
+    const w = $('mapwrap'), pl = g.players[v.id], col = COLORS[v.id % COLORS.length], old = w.querySelector('.winov'); if (old) old.remove();
+    const b = document.createElement('div'); b.className = 'winov'; b.style.setProperty('--wc', col);
+    b.innerHTML = '<div class="wt">&#127942;</div><div class="w1">' + esc(pl.name) + ' WINS!</div><div class="w2">Home in <b>' + esc(pl.home) + '</b> with <b>' + money(v.cash) + '</b> on round <b>' + v.round + '</b>.<br>' + pl.trips + ' trips, ' + M.rails.filter(r => g.owner[r.code] === v.id).length + ' rails.</div><div class="row" style="justify-content:center"><button class="b pri" id="win-again">Play again</button> <button class="b" id="win-close">See the results</button></div>';
+    w.appendChild(b); $('win-close').onclick = () => b.remove(); $('win-again').onclick = () => { b.remove(); openSetup(); };
+    const cols = ['#e6194b', '#ffd400', '#2e9e4f', '#1b6ec2', '#ff8c00', '#8e24aa', col], em = ['🎉', '⭐', '🏆', '💰', '🚂'];
+    const rain = () => { for (let i = 0; i < 60; i++) { const c = document.createElement('i'); c.className = 'cf'; c.style.left = Math.random() * 100 + '%'; c.style.background = cols[i % cols.length]; c.style.animationDelay = (Math.random() * 0.8) + 's'; c.style.setProperty('--dx', (Math.random() * 240 - 120) + 'px'); w.appendChild(c); setTimeout(() => c.remove(), 4200); }
+      for (let i = 0; i < 12; i++) { const c = document.createElement('i'); c.className = 'em'; c.textContent = em[i % em.length]; c.style.left = Math.random() * 100 + '%'; c.style.animationDelay = (Math.random() * 1.2) + 's'; c.style.setProperty('--dx', (Math.random() * 160 - 80) + 'px'); w.appendChild(c); setTimeout(() => c.remove(), 4800); } };
+    rain(); let k = 0; const iv = setInterval(() => { if (!b.isConnected || ++k > 5) { clearInterval(iv); return; } rain(); }, 1500);
+    const hc = P.city[pl.home]; if (hc) { layers.fx.innerHTML = ''; const fg = el('g', {}, layers.fx);
+      [0, 0.5, 1.0, 1.5].forEach((dl, i) => { const ring = el('circle', { cx: hc.x, cy: hc.y, r: 30, fill: 'none', stroke: cols[(i * 2) % cols.length], 'stroke-width': 10, class: 'fw' }, fg); ring.style.animationDelay = dl + 's'; });
+      clearTimeout(fxTimer); fxTimer = setTimeout(() => { layers.fx.innerHTML = ''; }, 6000); }
+  }
   /* a rail bought into someone's destination: centre-screen taunt, the bought track lights up, and so do the victims' destinations and tokens */
   function lucanored(k) {
     const w = $('mapwrap'), col = COLORS[k.buyerId % COLORS.length], b = document.createElement('div'); b.className = 'luc';
@@ -596,27 +619,31 @@
   const PHASE_TXT = { order: 'rolls a die to go first', home: 'rolls for a home city', dest: 'rolls for a destination', route: 'rolls to move', walk: 'moves', buy: 'may make one purchase' };
   function applyModes() { document.body.classList.toggle('shared', prefs.screen === 'shared'); }
   function passCover() {
-    const cv = $('pass'); if (!cv || !g) return; if (g.phase === 'over') { cv.hidden = true; return; }
+    const cv = $('pass'); if (!cv || !g || ONLINE.on) return; if (g.phase === 'over') { cv.hidden = true; return; }
     const p = B.cur(g); if (prefs.screen === 'shared' || p.bot || g.players.filter(q => !q.bot).length < 2 || lastCoverHuman === p.id) return;
     lastCoverHuman = p.id; cv.style.background = COLORS[p.id % COLORS.length];
     cv.innerHTML = '<div class="pc1">Pass the device to</div><div class="pc2">' + esc(p.name) + '</div><button class="b big" id="pass-ok">I am ' + esc(p.name) + ': start my turn</button>';
     cv.hidden = false; $('pass-ok').onclick = () => { cv.hidden = true; };
   }
   function turnBanner() {
-    const tb = $('turnbar'); if (!tb) return; if (!g || prefs.screen !== 'shared' || g.phase === 'over') { tb.hidden = true; return; }
+    const tb = $('turnbar'); if (!tb) return; if (!g || ONLINE.on || prefs.screen !== 'shared' || g.phase === 'over') { tb.hidden = true; return; }
     const p = B.cur(g); tb.hidden = false; tb.style.background = COLORS[p.id % COLORS.length]; tb.innerHTML = '<b>' + esc(p.name) + '</b> ' + (p.bot ? 'is playing&hellip;' : (PHASE_TXT[g.phase] || '') + (prefs.manual && /^(order|home|dest|route)$/.test(g.phase) ? ' with their real dice' : ''));
   }
   function announce() { // popups for what just happened: arrivals and a rail bought into someone's destination
     if (!g) return;
-    if (lastG !== g) { lastG = g; lastCoverHuman = -1; seenArrival = g.arrival ? g.arrival.n : 0; seenTaunt = g.taunt ? g.taunt.n : 0; seenEv = g.evn || 0; prevCash = g.players.map(p => p.cash); return; }
+    if (lastG !== g) { lastG = g; lastCoverHuman = -1; seenDecl = g.declared ? g.declared.n : 0; seenWin = g.victory ? g.victory.n : 0; seenArrival = g.arrival ? g.arrival.n : 0; seenTaunt = g.taunt ? g.taunt.n : 0; seenEv = g.evn || 0; prevCash = g.players.map(p => p.cash); return; }
     if (g.arrival && g.arrival.n !== seenArrival) { seenArrival = g.arrival.n; const a = g.arrival, pl = g.players[a.id], col = COLORS[a.id % COLORS.length];
       toast('<b style="color:' + col + '">' + esc(pl.name) + '</b> arrives in <b>' + esc(a.city) + '</b> &nbsp;<span class="gain">+' + money(a.pays) + '</span>', 2600, col); flashCity(a.city, col); }
+    if (ONLINE.on && ONLINE.seat >= 0 && g.phase !== 'over') { const tk = g.round + ':' + g.turn; if (tk !== ONLINE.lastTurnKey) { ONLINE.lastTurnKey = tk; if (B.cur(g).id === ONLINE.seat && !ONLINE.catchup) { toast('<b>Your turn, ' + esc(ONLINE.name) + '</b>', 1800, COLORS[ONLINE.seat % COLORS.length]); try { navigator.vibrate && navigator.vibrate(60); } catch (e) { /* no vibration */ } } } }
+    if (g.declared && g.declared.n !== seenDecl) { seenDecl = g.declared.n; if (!g.victory) declareBanner(g.declared); }
+    if (g.victory && g.victory.n !== seenWin) { seenWin = g.victory.n; setTimeout(() => winCelebration(g.victory), 700); }
     if (g.taunt && g.taunt.n !== seenTaunt) { seenTaunt = g.taunt.n; setTimeout(() => lucanored(g.taunt), 500); }
   }
   /* ---------- turn flow ---------- */
-  let flashTimer = 0;
+  let flashTimer = 0, botArmed = false;
   function afterAction() {
     render(); announce(); passCover();
+    if (ONLINE.on) setTimeout(processQueue, 30);
     if (g.phase !== 'over') { const key = g.round + ':' + g.turn; if (key !== lastKey) { lastKey = key; turnIntro(); } }
     scheduleBot();
   }
@@ -685,14 +712,16 @@
     rollFx(items, finish, quick, still);
   }
   function scheduleBot() {
-    clearTimeout(botTimer); if (!g || g.phase === 'over' || paused) return;
+    clearTimeout(botTimer); botArmed = false; if (!g || g.phase === 'over' || paused) return;
     const p = B.cur(g); if (!p.bot) return;
-    botTimer = setTimeout(() => {
-      const q = B.cur(g), id = q.id, who = q.name;
-      if (g.phase === 'route' && q.bot) { botMoveAnim(q); return; }
-      const r = B.botAct(g), kind = ({ 'rolls the destination': 'region', 'rolls the city': 'city', 'rolls for turn order': 'order', 'rolls for a home city': 'home' })[r];
-      if (kind) playFx(kind, who, id, prefs.speed <= 650); else afterAction();
-    }, prefs.speed + Math.max(0, introUntil - performance.now()));
+    botArmed = true; botTimer = setTimeout(() => { botArmed = false; if (ONLINE.on) { setTimeout(() => onlineSend('bot', {}), Math.random() * 250); return; } runBotEntry(); }, prefs.speed + Math.max(0, introUntil - performance.now()));
+  }
+  function runBotEntry() { // one bot step with its dice overlay and walk
+    const q = B.cur(g); if (!q.bot || g.phase === 'over') return; const id = q.id, who = q.name;
+    ACTLOG.push({ seat: -1, a: 'bot', d: {} });
+    if (g.phase === 'route') { botMoveAnim(q); return; }
+    const r = B.botAct(g), kind = ({ 'rolls the destination': 'region', 'rolls the city': 'city', 'rolls for turn order': 'order', 'rolls for a home city': 'home' })[r];
+    if (kind) playFx(kind, who, id, prefs.speed <= 650); else afterAction();
   }
   /* a bot's move: zoom to the whole map, ring where it starts, then walk it pip by pip while the roll counts down */
   function botMoveAnim(p) {
@@ -722,46 +751,99 @@
     const go = () => { pb.hidden = false; draw(0); let i = 0; const tick = () => { if (i >= pts.length) { setTimeout(finish, fast ? 150 : 800); return; } i++; draw(i); setTimeout(tick, stepMs); }; setTimeout(tick, holdMs); };
     if (rolls.length && !prefs.manual && prefs.speed > 120) rollFx([{ vals: rolls, title: snap.name + ' rolls to move', text: '= ' + mv.rolled + ' pips' + (rolls.length === 2 && rolls[0] === 6 && rolls[1] === 6 ? ' — DOUBLE SIX!' : ''), six: rolls.length === 2 && rolls[0] === 6 && rolls[1] === 6 ? (p.sc ? 'small' : 'big') : '' }], go, prefs.speed <= 650); else go();
   }
+  /* every game action is an entry {seat, a, d}: B.apply() decides if it is legal and changes the game, so a saved log, a second device or a room replays it exactly */
+  const ENTRY = { rollorder: 'rollorder', rollhome: 'rollhome', rollregion: 'rollregion', pick: 'pick', rolldest: 'rolldest', declare: 'declare', bonus: 'bonus', pipbtn: 'pip', rollcity: 'rollcity', rollmove: 'rollmove', undo: 'undo', autowalk: 'autowalk', finish: 'finish', buy: 'buy', chief: 'chief', end: 'end', rmvia: 'via', clearvia: 'clearvia' };
   function act(a, el) {
-    if (!g || anim) return; const p = B.cur(g), who = p.name, whoId = p.id; let fx = null;
-    if (a === 'rollorder') { B.rollOrder(g); fx = 'order'; }
-    else if (a === 'rollhome') { B.rollHomeStep(g); fx = 'home'; }
-    else if (a === 'rollregion') { B.rollRegion(g); fx = 'region'; }
-    else if (a === 'pick') { B.pickRegion(g, el.dataset.r); }
-    else if (a === 'rolldest') { B.skipDeclare(g); }
-    else if (a === 'declare') { B.declareHome(g); routeMode = 'balanced'; }
-    else if (a === 'bonus') { B.startBonus(g); }
-    else if (a === 'pipbtn') { B.stepWalk(g, +el.dataset.i); }
-    else if (a === 'rollcity') { B.rollCity(g); routeMode = 'balanced'; fx = 'city'; }
-    else if (a === 'rollmove') { if (prefs.step) B.rollMoveStep(g); else B.rollMove(g); fx = 'move'; }
-    else if (a === 'undo') { B.undoWalk(g); }
-    else if (a === 'autowalk') { B.autoWalk(g); }
-    else if (a === 'finish') { B.commitWalk(g); }
-    else if (a === 'pad') { pad[el.dataset.k] = +el.dataset.v; render(); return; }
-    else if (a === 'padgo') {
-      const kind = el.dataset.kind, f = Object.assign({}, pad), face = { col: f.col, w1: f.w1, w2: f.w2 }; pad = {}; padKind = '';
-      if (kind === 'order') { B.rollOrder(g, f.w1); fx = 'order'; }
-      else if (kind === 'region') { B.rollRegion(g, face); fx = 'region'; }
-      else if (kind === 'city') { B.rollCity(g, face); routeMode = 'balanced'; fx = 'city'; }
-      else if (kind === 'move') { const faces = g.bonus ? [f.w1] : [f.w1, f.w2]; if (prefs.step) B.rollMoveStep(g, faces); else B.rollMove(g, faces); fx = 'move'; }
-      else if (kind === 'home1') { const rg = M.tracker.regions[face.col % 2 ? 'odd' : 'even'][face.w1 + face.w2]; if (M.tracker.cityTables[rg]) { homeFaces = face; render(); return; } B.rollHomeStep(g, face, null); fx = 'home'; }
-      else if (kind === 'home2') { B.rollHomeStep(g, homeFaces, face); homeFaces = null; fx = 'home'; }
+    if (!g || anim) return; const ds = Object.assign({}, el && el.dataset);
+    if (a === 'pad') { pad[ds.k] = +ds.v; render(); return; }
+    if (a === 'closetip') { closeTip(); return; }
+    if (a === 'pause') { paused = !paused; afterAction(); return; }
+    if (a === 'skip') { if (ONLINE.on) return; for (let i = 0; i < 400 && g.phase !== 'over' && B.cur(g).bot; i++) B.botAct(g); afterAction(); return; }
+    if (a === 'export') { download('iron-meridian-game.json', JSON.stringify(B.exportLog(g), null, 1)); return; }
+    if (a === 'new') { openSetup(); return; }
+    if (a === 'padgo') {
+      const kind = ds.kind, f = Object.assign({}, pad), faces = { col: f.col, w1: f.w1, w2: f.w2 }; pad = {}; padKind = '';
+      if (kind === 'order') dispatch('rollorder', { face: f.w1 });
+      else if (kind === 'region') dispatch('rollregion', { faces });
+      else if (kind === 'city') dispatch('rollcity', { faces });
+      else if (kind === 'move') dispatch('rollmove', { step: !!prefs.step, dice: g.bonus ? [f.w1] : [f.w1, f.w2] });
+      else if (kind === 'home1') { const rg = M.tracker.regions[faces.col % 2 ? 'odd' : 'even'][faces.w1 + faces.w2]; if (M.tracker.cityTables[rg]) { homeFaces = faces; render(); return; } dispatch('rollhome', { f1: faces }); }
+      else if (kind === 'home2') { const f1 = homeFaces; homeFaces = null; dispatch('rollhome', { f1, f2: faces }); }
+      return;
     }
-    else if (a === 'mdest') { const m = { parity: $('mpar').value, sum: +$('msum').value }; if (el.dataset.k === 'region') B.rollRegion(g, m); else { B.rollCity(g, m); routeMode = 'balanced'; } }
-    else if (a === 'mmove') { const n = Math.max(1, Math.min(18, +$('mdots').value || 7)); if (prefs.step) B.rollMoveStep(g, n); else B.rollMove(g, n); }
-    else if (a === 'buy') { B.buyRail(g, p.id, el.dataset.r); }
-    else if (a === 'chief') { B.buyChief(g, p.id); }
-    else if (a === 'end') { B.endTurn(g); }
-    else if (a === 'closetip') { closeTip(); return; }
-    else if (a === 'rmvia') { B.toggleVia(g, el.dataset.c); }
-    else if (a === 'clearvia') { B.clearVia(g); }
-    else if (a === 'pause') { paused = !paused; }
-    else if (a === 'skip') { for (let i = 0; i < 400 && g.phase !== 'over' && B.cur(g).bot; i++) B.botAct(g); }
-    else if (a === 'export') { download('iron-meridian-game.json', JSON.stringify(B.exportLog(g), null, 1)); return; }
-    else if (a === 'new') { openSetup(); return; }
-    if (fx) { playFx(fx, who, whoId, false, prefs.manual); return; }
-    afterAction();
+    const e2 = ENTRY[a]; if (!e2) return; const d = {};
+    if (a === 'pick' || a === 'buy') d.r = ds.r; if (a === 'pipbtn') d.i = +ds.i; if (a === 'rmvia') d.c = ds.c; if (a === 'rollmove') d.step = !!prefs.step;
+    dispatch(e2, d);
   }
+  function dispatch(a, d) { // play it here, or hand it to the room (which sends it back in order)
+    if (ONLINE.on) { onlineSend(a, d); return; }
+    runEntry({ seat: g.turn, a, d });
+  }
+  function runEntry(e) { // apply an entry (made here or arriving from the room) and play its effects
+    if (!g) return; if (e.a === 'bot') { runBotEntry(); return; }
+    const p = B.cur(g), who = p.name, whoId = p.id, r = B.apply(g, e); if (!r.ok) { if (ONLINE.on) setTimeout(processQueue, 0); return; }
+    ACTLOG.push(e);
+    if (r.fx) playFx(r.fx, who, whoId, false, !!(e.d && (e.d.faces || e.d.dice || e.d.face || e.d.f1))); else afterAction();
+  }
+  const ACTLOG = [], ONLINE = { on: false, id: '', token: '', seat: -1, name: '', len: 0, lastFetched: 0, queue: [], catchup: false, timer: 0, busy: false, settings: null, claims: {}, lastTurnKey: '' };
+  /* ---------- online rooms ----------
+     A room is a seed, the settings and an ordered list of entries on a relay (the LAN server's /api, or any server with the same calls). Every device runs the same engine over the same list,
+     so the game is identical everywhere. Bots are asked for by whichever device is first (the relay accepts one entry per number). */
+  const RELAY = { ok: false, base: 'api' }, rid = () => Math.random().toString(36).slice(2, 10);
+  const relayFetch = (path, opt) => fetch(RELAY.base + path, opt).then(r => r.json());
+  fetch(RELAY.base + '/ping').then(r => r.json()).then(j => { RELAY.ok = !!(j && j.ok); if (RELAY.ok && !g) { const dl = $('dlg'); if (dl && dl.open && $('era-sel')) { dl.close(); openSetup(); } } }).catch(() => { RELAY.ok = false; });
+  const mine = () => !ONLINE.on || (!!g && B.cur(g).id === ONLINE.seat);
+  const seatKey = code => 'baron.room.' + code, readSeat = code => { try { return JSON.parse(localStorage.getItem(seatKey(code)) || 'null'); } catch (e) { return null; } };
+  function roomLink() { return location.origin + location.pathname + '?room=' + ONLINE.id; }
+  function roomBar() {
+    const rb = $('roombar'); if (!rb) return; if (!ONLINE.on) { rb.hidden = true; return; }
+    const who = Object.keys(ONLINE.claims || {}).map(k => esc((ONLINE.claims[k] || {}).name || '')).join(', ');
+    rb.hidden = false; rb.innerHTML = '<b>Room ' + esc(ONLINE.id) + '</b> &middot; ' + (ONLINE.seat >= 0 ? 'you are <b>' + esc(ONLINE.name) + '</b>' : 'watching') + (who ? ' &middot; <span class="muted">here: ' + who + '</span>' : '') + ' <button class="b sm" id="rb-copy">Copy link</button> <button class="b sm" id="rb-leave">Leave</button>';
+    $('rb-copy').onclick = () => { try { navigator.clipboard.writeText(roomLink()); toast('Link copied: ' + esc(roomLink()), 2400); } catch (e) { prompt('Room link', roomLink()); } };
+    $('rb-leave').onclick = () => { if (confirm('Leave this room?')) leaveRoom(); };
+  }
+  function leaveRoom() { clearInterval(ONLINE.timer); ONLINE.on = false; try { localStorage.removeItem('baron.lastroom'); } catch (e) { /* none */ } location.href = location.pathname; }
+  function startOnline(id, settings, claims, seat, token, name) {
+    Object.assign(ONLINE, { on: true, id, seat, token, name, len: 0, lastFetched: 0, queue: [], catchup: true, settings, claims: claims || {}, busy: false, lastTurnKey: '' });
+    try { localStorage.setItem(seatKey(id), JSON.stringify({ seat, token, name })); localStorage.setItem('baron.lastroom', id); } catch (e) { /* none */ }
+    g = B.newGame({ players: settings.players.map(p => ({ name: p.name, bot: !!p.bot })), start: settings.start, win: settings.win, superChief: settings.superChief, seed: settings.seed });
+    ACTLOG.length = 0; paused = false; routeMode = 'balanced'; const dl = $('dlg'); if (dl.open) dl.close(); afterAction(); roomBar();
+    clearInterval(ONLINE.timer); ONLINE.timer = setInterval(poll, 900); poll();
+  }
+  async function poll() {
+    if (!ONLINE.on || ONLINE.busy) return; ONLINE.busy = true;
+    try {
+      const j = await relayFetch('/room/' + ONLINE.id + '?since=' + ONLINE.lastFetched);
+      if (j.ok) { (j.log || []).forEach(e => { if (e.n > ONLINE.lastFetched) { ONLINE.queue.push(e); ONLINE.lastFetched = e.n; } }); ONLINE.claims = j.claims || {}; roomBar(); processQueue(); if (!ONLINE.queue.length && !anim && g && g.phase !== 'over' && B.cur(g).bot && !botArmed) scheduleBot(); }
+    } catch (e) { /* the relay is unreachable for now: the next poll tries again */ } finally { ONLINE.busy = false; }
+  }
+  function processQueue() { // apply what has arrived, in order; a big backlog (joining late) is applied at once without animations
+    if (!ONLINE.on || !g || anim) return;
+    while (ONLINE.queue.length) {
+      const e = ONLINE.queue[0]; if (e.n !== ONLINE.len + 1) { ONLINE.queue.shift(); continue; }
+      if (ONLINE.catchup || ONLINE.queue.length > 1) { ONLINE.queue.shift(); ONLINE.len = e.n; if (e.a === 'bot') { if (B.cur(g).bot) B.botAct(g); } else B.apply(g, e); ACTLOG.push(e); continue; }
+      ONLINE.queue.shift(); ONLINE.len = e.n; runEntry(e); return; // its animations run; afterAction() calls processQueue again
+    }
+    if (ONLINE.catchup) { ONLINE.catchup = false; afterAction(); }
+  }
+  function post(body) { relayFetch('/room/' + ONLINE.id + '/act', { method: 'POST', body: JSON.stringify(body) }).then(() => setTimeout(poll, 30)).catch(() => { /* the next poll shows what happened */ }); }
+  function onlineSend(a, d) {
+    if (!ONLINE.on || !g || ONLINE.catchup || ONLINE.queue.length) return; const p = B.cur(g);
+    if (a === 'bot') { if (!p.bot || anim) return; post({ n: ONLINE.len + 1, seat: -1, token: '', a, d }); return; }
+    if (ONLINE.seat !== g.turn || p.bot) return; post({ n: ONLINE.len + 1, seat: ONLINE.seat, token: ONLINE.token, a, d });
+  }
+  async function openJoin(code) {
+    const dl = $('dlg'); code = (code || '').trim().toUpperCase(); if (!code) return;
+    try {
+      const j = await relayFetch('/room/' + code + '?since=0'); if (!j.ok) throw 0;
+      if (j.settings.era !== ERA.id && ERAS.some(e => e[0] === j.settings.era)) { try { localStorage.setItem('baron.era.v1', j.settings.era); } catch (x) { /* none */ } location.href = location.pathname + '?room=' + code; return; }
+      const sv = readSeat(code);
+      dl.innerHTML = '<h2>Join room ' + esc(code) + '</h2><p class="muted">Pick who you are, or just watch.</p><div class="chips">' + j.settings.players.map((p, i) => { if (p.bot) return ''; const c = (j.claims || {})[i]; return (c && !(sv && sv.seat === i)) ? '<button class="b chip" disabled>' + esc(p.name) + ' (taken)</button>' : '<button class="b chip pri" data-seat="' + i + '">Play as ' + esc(p.name) + '</button>'; }).join('') + '</div><div class="row"><button class="b" id="jwatch">Just watch</button> <button class="b" id="jcancel">Cancel</button></div>';
+      dl.querySelectorAll('[data-seat]').forEach(b => { b.onclick = async () => { const seat = +b.dataset.seat, token = (sv && sv.seat === seat) ? sv.token : rid() + rid(), name = j.settings.players[seat].name; const c = await relayFetch('/room/' + code + '/claim', { method: 'POST', body: JSON.stringify({ seat, token, name }) }); if (!c.ok) { alert('That seat was just taken.'); openJoin(code); return; } startOnline(code, j.settings, j.claims, seat, token, name); }; });
+      $('jwatch').onclick = () => startOnline(code, j.settings, j.claims, -1, '', 'Spectator'); $('jcancel').onclick = () => dl.close(); if (!dl.open) dl.showModal();
+    } catch (e) { alert('There is no room with that code on this server.'); }
+  }
+
   function download(name, text) { const b = new Blob([text], { type: 'application/json' }), u = URL.createObjectURL(b), a = document.createElement('a'); a.href = u; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(u), 1000); }
 
   document.addEventListener('click', e => {
@@ -770,7 +852,7 @@
     const row = e.target.closest('#rails tr[data-rail]'); if (row) { selectRail(row.dataset.rail); }
   });
   document.addEventListener('change', e => {
-    if (e.target.name === 'rm' && g) { routeMode = e.target.value; g.routeMode = routeMode; B.setRoute(g, routeMode); render(); }
+    if (e.target.name === 'rm' && g) { dispatch('route', { mode: e.target.value }); }
     if (e.target.id === 'hm') { prefs.homes = e.target.checked; savePrefs(); updateMap(); }
     if (e.target.id === 'stp') { prefs.step = e.target.checked; savePrefs(); }
     if (e.target.id === 'tg') { prefs.tags = e.target.checked; drawTags(); savePrefs(); }
@@ -795,13 +877,23 @@
   const NAMES = ['Anna', 'Bo', 'Cy', 'Dee', 'Eli', 'Fay'];
   function openSetup() {
     const d = $('dlg'), saved = (() => { try { return localStorage.getItem(SAVE); } catch (e) { return null; } })();
-    d.innerHTML = '<h2>New game</h2><div class="row" style="margin:0 0 8px"><label>Era <select id="era-sel">' + ERAS.map(e => '<option value="' + e[0] + '"' + (e[0] === ERA.id ? ' selected' : '') + '>' + e[1] + '</option>').join('') + '</select></label><span class="muted">the board, the rail companies, the city names and the fast train change</span></div><div class="grid"><label>Dice <select id="dice-set"><option value="digital"' + (prefs.dice !== 'real' ? ' selected' : '') + '>Digital (3D dice on screen)</option><option value="real"' + (prefs.dice === 'real' ? ' selected' : '') + '>Real dice (you roll and tap what they show)</option></select></label><label>Screen <select id="screen-set"><option value="pass"' + (prefs.screen !== 'shared' ? ' selected' : '') + '>One device passed around</option><option value="shared"' + (prefs.screen === 'shared' ? ' selected' : '') + '>One shared screen on the table</option></select></label></div><div class="presets"><button class="b" data-pre="1">You vs 1 bot</button><button class="b" data-pre="2">You vs 2 bots</button><button class="b" data-pre="3">3 people, one device</button><button class="b" data-pre="4">Watch 3 bots</button></div>' +
+    d.innerHTML = '<h2>New game</h2><div class="row" style="margin:0 0 8px"><label>Era <select id="era-sel">' + ERAS.map(e => '<option value="' + e[0] + '"' + (e[0] === ERA.id ? ' selected' : '') + '>' + e[1] + '</option>').join('') + '</select></label><span class="muted">the board, the rail companies, the city names and the fast train change</span></div><div class="grid"><label>Dice <select id="dice-set"><option value="digital"' + (prefs.dice !== 'real' ? ' selected' : '') + '>Digital (3D dice on screen)</option><option value="real"' + (prefs.dice === 'real' ? ' selected' : '') + '>Real dice (you roll and tap what they show)</option></select></label><label>Screen <select id="screen-set"><option value="pass"' + (prefs.screen !== 'shared' ? ' selected' : '') + '>One device passed around</option><option value="shared"' + (prefs.screen === 'shared' ? ' selected' : '') + '>One shared screen on the table</option></select></label></div>' + (RELAY.ok ? '<div class="row" style="margin:0 0 8px;align-items:center"><b>Together on this network:</b> <button class="b" id="mk-room">Create a room with these settings</button> <input id="join-code" placeholder="ROOM CODE" size="8" style="text-transform:uppercase"> <button class="b" id="join-room">Join</button></div>' : '') + '<div class="presets"><button class="b" data-pre="1">You vs 1 bot</button><button class="b" data-pre="2">You vs 2 bots</button><button class="b" data-pre="3">3 people, one device</button><button class="b" data-pre="4">Watch 3 bots</button></div>' +
       '<div id="prow"></div><div class="grid"><label>Players <select id="np">' + [2, 3, 4, 5, 6].map(n => '<option' + (n === 3 ? ' selected' : '') + '>' + n + '</option>').join('') + '</select></label>' +
       '<label>Start cash ($K) <input id="cs" type="number" value="' + M.cfg.start / 1000 + '"></label><label>Win cash ($K) <input id="cw" type="number" value="' + M.cfg.win / 1000 + '"></label>' +
       '<label>' + UP + ' ($K, 0 = none) <input id="cc" type="number" value="' + M.cfg.superChief / 1000 + '"></label><label>Seed (blank = random) <input id="sd" type="text" placeholder="e.g. 42"></label></div>' +
       '<div class="row"><button class="b pri" id="go">Start</button> <button class="b" id="cancel">Cancel</button>' + (saved ? ' <button class="b" id="resume">Resume saved game</button>' : '') + ' <label class="ld">Load game file <input type="file" id="lf" accept=".json"></label></div>';
     const rows = () => { const n = +$('np').value, pr = $('prow'); const old = [...pr.querySelectorAll('.pr')].map(r => [r.querySelector('input').value, r.querySelector('select').value]); pr.innerHTML = ''; for (let i = 0; i < n; i++) { const o = old[i] || [NAMES[i], i === 0 ? 'human' : 'bot']; pr.insertAdjacentHTML('beforeend', '<div class="pr"><span class="dot" style="background:' + COLORS[i] + '"></span><input value="' + esc(o[0]) + '"> <select><option value="human"' + (o[1] === 'human' ? ' selected' : '') + '>person</option><option value="bot"' + (o[1] === 'bot' ? ' selected' : '') + '>bot</option></select></div>'); } };
     rows(); $('np').onchange = rows;
+    if ($('mk-room')) {
+      $('mk-room').onclick = async () => {
+        const pl = [...$('prow').querySelectorAll('.pr')].map(r => ({ name: r.querySelector('input').value.trim() || 'Player', bot: r.querySelector('select').value === 'bot' })), seat = pl.findIndex(p => !p.bot);
+        if (seat < 0) { alert('Make at least one player a person: that is you.'); return; }
+        prefs.dice = $('dice-set').value; prefs.manual = prefs.dice === 'real'; savePrefs(); const sd = $('sd').value.trim(), seed = sd ? (isNaN(+sd) ? [...sd].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) : +sd) : ((Math.random() * 4294967296) >>> 0);
+        const settings = { era: ERA.id, seed, start: +$('cs').value * 1000, win: +$('cw').value * 1000, superChief: +$('cc').value * 1000, players: pl };
+        try { const j = await relayFetch('/room', { method: 'POST', body: JSON.stringify({ settings }) }); if (!j.ok) throw 0; const token = rid() + rid(); await relayFetch('/room/' + j.id + '/claim', { method: 'POST', body: JSON.stringify({ seat, token, name: pl[seat].name }) }); startOnline(j.id, settings, {}, seat, token, pl[seat].name); toast('Room <b>' + j.id + '</b> is open. Press Copy link in the bar and send it.', 5000); } catch (e) { alert('Could not reach the room server.'); }
+      };
+      $('join-room').onclick = () => openJoin($('join-code').value);
+    }
     $('era-sel').onchange = e => { try { localStorage.setItem('baron.era.v1', e.target.value); } catch (x) { /* no storage */ } location.href = location.pathname; };
     d.querySelectorAll('[data-pre]').forEach(b => b.onclick = () => { const k = +b.dataset.pre; $('np').value = k === 1 ? 2 : (k === 2 ? 3 : 3); rows(); const sel = $('prow').querySelectorAll('select'); sel.forEach((s, i) => { s.value = k === 1 ? (i === 0 ? 'human' : 'bot') : k === 2 ? (i === 0 ? 'human' : 'bot') : k === 3 ? 'human' : 'bot'; }); });
     $('cancel').onclick = () => d.close();
@@ -846,7 +938,8 @@
   $('hm').checked = prefs.homes !== false; $('stp').checked = prefs.step !== false; $('tg').checked = prefs.tags !== false; $('crd').checked = !!prefs.cards; $('trl').checked = prefs.trails !== false; $('pln').checked = prefs.plain !== false; $('pal').value = prefs.palette || 'classic'; $('thk').checked = !!prefs.thick; $('tgt').checked = !!prefs.tight; $('spd').value = String(prefs.speed); $('fol').checked = prefs.follow; $('dsel').value = prefs.dice || 'digital'; $('ssel').value = prefs.screen || 'pass'; applyModes();
 
   buildMap(); drawEra(); if (prefs.tight || prefs.cards) applyTight(); updateMap();
-  window.baronDebug = { B, ERA, drawEra, drawTrain, el, laneOrders, celebrateSix, toast, floatMoney, flyMoney, lucanored, get g() { return g; }, set g(v) { g = v; }, render, afterAction, handleMapClick, selectRail, closeTip, turnIntro };
+  window.baronDebug = { B, ERA, ONLINE, startOnline, openJoin, processQueue, RELAY, ACTLOG, dispatch, runEntry, declareBanner, winCelebration, drawEra, drawTrain, el, laneOrders, celebrateSix, toast, floatMoney, flyMoney, lucanored, get g() { return g; }, set g(v) { g = v; }, render, afterAction, handleMapClick, selectRail, closeTip, turnIntro };
+  setTimeout(() => { const m = location.search.match(/[?&]room=([A-Za-z]+)/); if (!m) return; fetch(RELAY.base + '/ping').then(r => r.json()).then(j => { if (j && j.ok) { RELAY.ok = true; openJoin(m[1]); } }).catch(() => { /* no relay here */ }); }, 400);
   let saved = null; try { saved = localStorage.getItem(SAVE); } catch (e) { /* none */ }
   if (saved) { try { g = JSON.parse(saved); afterAction(); } catch (e) { openSetup(); } } else { openSetup(); }
 })();

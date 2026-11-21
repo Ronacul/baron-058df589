@@ -80,8 +80,9 @@
 
     /* ---------- new game ---------- */
     function newGame(s) {
+      const seed0 = (s.seed >>> 0) || ((Math.random() * 4294967296) >>> 0); // the seed actually used is kept in the game, so any game can be replayed
       const g = {
-        v: 1, map: M.id, rng: (s.seed >>> 0) || ((Math.random() * 4294967296) >>> 0), seed: s.seed || 0,
+        v: 1, map: M.id, rng: seed0, seed: seed0,
         cfg: { start: s.start || C.start, win: s.win || C.win, superChief: s.superChief === undefined ? C.superChief : s.superChief },
         round: 1, turn: 0, phase: 'dest', stage: 'region', owner: {}, log: [], trips: [], dice: null, winner: null, turnPaid: {}, lastMove: null, moveNote: null,
         players: []
@@ -153,7 +154,8 @@
     function skipDeclare(g) { if (g.phase !== 'dest' || g.stage !== 'declare') return false; g.stage = 'region'; log(g, cur(g).name + ' has ' + money(cur(g).cash) + ' but keeps playing: rolling a destination instead of declaring.', g.turn); return true; }
     function declareHome(g) {
       const p = cur(g); if (g.phase !== 'dest' || g.stage !== 'declare') return false;
-      p.goingHome = true; p.declaredFrom = p.loc; log(g, p.name + ' has ' + money(p.cash) + ' and declares: heading home to ' + p.home + '! Anyone who crosses ' + p.name + ' (any pip or city) catches them (' + money(C.catchFee) + ').', p.id);
+      p.goingHome = true; p.declaredFrom = p.loc; g.declared = { n: ((g.declared && g.declared.n) || 0) + 1, id: p.id, home: p.home, cash: p.cash };
+      log(g, p.name + ' has ' + money(p.cash) + ' and declares: heading home to ' + p.home + '! Anyone who crosses ' + p.name + ' (any pip or city) catches them (' + money(C.catchFee) + ').', p.id);
       if (p.loc === p.home) { win(g, p); return true; }
       setDest(g, p.home); return true;
     }
@@ -187,7 +189,7 @@
     function checkDouble6(g, rolls) {
       if (!g.bonus && rolls.length === 2 && rolls[0] === 6 && rolls[1] === 6) { g.dbl6 = true; log(g, cur(g).name + ' rolled DOUBLE SIX: if they arrive they get the ' + UP + ' bonus (new destination + one die) this turn.', g.turn); }
     }
-    function win(g, p) { g.winner = p.id; g.phase = 'over'; log(g, p.name + ' is home with ' + money(p.cash) + ' and wins on round ' + g.round + '!', p.id); }
+    function win(g, p) { g.winner = p.id; g.phase = 'over'; g.victory = { n: 1, id: p.id, round: g.round, cash: p.cash }; log(g, p.name + ' is home with ' + money(p.cash) + ' and wins on round ' + g.round + '!', p.id); }
 
     /* destination: step 1 = region roll */
     function rollRegion(g, manual) {
@@ -525,6 +527,41 @@
       return null;
     }
 
+    /* ---------- one entry point for every move: apply(g, {seat, a, d}) ----------
+       The page, a saved action log and a remote device all drive the game through this, so the same list of entries always ends in the same state.
+       An entry is ignored (ok:false) when it is not legal right now: wrong phase, wrong seat, or a human trying to act on a bot's turn. */
+    const BOTFX = { 'rolls the destination': 'region', 'rolls the city': 'city', 'rolls for turn order': 'order', 'rolls for a home city': 'home' };
+    function apply(g, e) {
+      const bad = { ok: false };
+      if (!g || g.phase === 'over') return bad;
+      const p = cur(g), d = e.d || {}, ph = g.phase, st = g.stage; let fx = null;
+      if (e.a === 'bot') { if (!p.bot) return bad; const r = botAct(g); return { ok: true, bot: true, fx: BOTFX[r] || null, r }; }
+      if (p.bot || e.seat !== g.turn) return bad;
+      switch (e.a) {
+        case 'rollorder': if (ph !== 'order') return bad; rollOrder(g, d.face); fx = 'order'; break;
+        case 'rollhome': if (ph !== 'home') return bad; rollHomeStep(g, d.f1, d.f2); fx = 'home'; break;
+        case 'rollregion': if (ph !== 'dest' || st !== 'region') return bad; rollRegion(g, d.faces); fx = 'region'; break;
+        case 'pick': if (ph !== 'dest' || st !== 'pick') return bad; pickRegion(g, d.r); break;
+        case 'rolldest': if (ph !== 'dest' || st !== 'declare') return bad; skipDeclare(g); break;
+        case 'declare': if (ph !== 'dest' || st !== 'declare') return bad; declareHome(g); break;
+        case 'bonus': if (!canBonus(g)) return bad; startBonus(g); break;
+        case 'rollcity': if (ph !== 'dest' || st !== 'city') return bad; rollCity(g, d.faces); fx = 'city'; break;
+        case 'rollmove': if (ph !== 'route') return bad; if (d.step) rollMoveStep(g, d.dice); else rollMove(g, d.dice); fx = 'move'; break;
+        case 'pip': if (ph !== 'walk') return bad; stepWalk(g, +d.i); break;
+        case 'undo': if (ph !== 'walk') return bad; undoWalk(g); break;
+        case 'autowalk': if (ph !== 'walk') return bad; autoWalk(g); break;
+        case 'finish': if (ph !== 'walk') return bad; commitWalk(g); break;
+        case 'buy': if (ph !== 'buy') return bad; buyRail(g, p.id, d.r); break;
+        case 'chief': if (ph !== 'buy') return bad; buyChief(g, p.id); break;
+        case 'end': if (ph !== 'buy') return bad; endTurn(g); break;
+        case 'via': if (ph !== 'route') return bad; toggleVia(g, d.c); break;
+        case 'clearvia': if (ph !== 'route') return bad; clearVia(g); break;
+        case 'route': if (ph !== 'route') return bad; g.routeMode = d.mode; setRoute(g, d.mode); break;
+        default: return bad;
+      }
+      return { ok: true, fx };
+    }
+
     function stats(g) {
       return g.players.map(p => ({
         name: p.name, bot: p.bot, cash: p.cash, trips: p.trips, avg: p.trips ? p.gross / p.trips : 0, turns: p.turns, gross: p.gross, paid: p.paid, received: p.received,
@@ -546,7 +583,7 @@
         players: stats(g), trips: g.trips.map(t => ({ player: g.players[t.p].name, from: t.from, to: t.to, pays: t.pays, round: t.round })), owners: g.owner };
     }
 
-    return { M, P, newGame, rollRegion, pickRegion, rollCity, setDest, setRoute, toggleVia, clearVia, route, routeInfo, rollOrder, rollHomeStep, skipDeclare, declareHome, startBonus, canBonus, rollMove, rollMoveStep, stepOptions, stepWalk, undoWalk, autoWalk, commitWalk, walkFees, suggestedStep, optPos, move, buyRail, buyChief, canBuy, canBuyChief, endTurn, botAct, stats, tokenPos, exportLog,
+    return { M, P, newGame, rollRegion, pickRegion, rollCity, setDest, setRoute, toggleVia, clearVia, route, routeInfo, apply, rollOrder, rollHomeStep, skipDeclare, declareHome, startBonus, canBonus, rollMove, rollMoveStep, stepOptions, stepWalk, undoWalk, autoWalk, commitWalk, walkFees, suggestedStep, optPos, move, buyRail, buyChief, canBuy, canBuyChief, endTurn, botAct, stats, tokenPos, exportLog,
       payoff, units, money, cur, allSold, regionOf, railScore, feeFor };
   }
 
