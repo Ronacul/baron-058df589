@@ -12,9 +12,10 @@
   const $ = id => document.getElementById(id);
   const esc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const FACE = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
-  let g = null, prefs = { speed: 650, follow: false, manual: false, tags: true, homes: true, step: true, cards: false, tight: false }, botTimer = null, paused = false, routeMode = 'balanced', hi = null, flashId = -1, flashIds = [], animHide = -1, anim = null, tip = null, lastKey = '', introUntil = 0;
+  let g = null, prefs = { speed: 650, follow: false, manual: false, dice: 'digital', screen: 'pass', tags: true, homes: true, step: true, cards: false, tight: false }, botTimer = null, paused = false, routeMode = 'balanced', hi = null, flashId = -1, flashIds = [], animHide = -1, anim = null, tip = null, lastKey = '', introUntil = 0;
   try { Object.assign(prefs, JSON.parse(localStorage.getItem(PREF) || '{}')); } catch (e) { /* no storage */ }
   COLORS = PALETTES[prefs.palette] || PALETTES.classic;
+  if (prefs.manual && prefs.dice !== 'real') prefs.dice = 'real'; prefs.manual = prefs.dice === 'real'; // older saved settings
   const savePrefs = () => { try { localStorage.setItem(PREF, JSON.stringify(prefs)); } catch (e) { /* ignore */ } };
 
   /* ---------- map ---------- */
@@ -368,7 +369,7 @@
   /* ---------- side panels ---------- */
   const money = B.money;
   const DPIPS = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
-  function dieHtml(v, red) { const on = DPIPS[v] || []; let c = ''; for (let i = 0; i < 9; i++) c += '<i' + (on.indexOf(i) >= 0 ? ' class="on"' : '') + '></i>'; return '<span class="pd' + (red ? ' red' : '') + '" title="' + v + '">' + c + '</span>'; }
+  function dieHtml(v, red, still) { const on = DPIPS[v] || []; let c = ''; for (let i = 0; i < 9; i++) c += '<i' + (on.indexOf(i) >= 0 ? ' class="on"' : '') + '></i>'; return '<span class="pd' + (red ? ' red' : '') + (still ? ' still' : '') + '" title="' + v + '">' + c + '</span>'; }
   function rollLine(d, label) {
     const dice = d.manual ? '' : dieHtml(d.col, true) + dieHtml(d.w1) + dieHtml(d.w2);
     return '<div>' + label + ' ' + dice + ' <span class="sum">' + d.parity + ' column, white ' + d.sum + ' &rarr; <b>' + esc(d.kind === 'city' ? d.city : d.region) + '</b></span></div>';
@@ -406,6 +407,24 @@
       ((p.via || []).length ? '<div>' + p.via.map(c => '<span class="rc via" data-act="rmvia" data-c="' + esc(c) + '">via ' + esc(c) + ' &#10005;</span>').join(' ') + ' <button class="b sm" data-act="clearvia">Clear</button></div>' : '') +
       '<div class="muted">Tap cities on the map to steer through them. Fees once a turn: ' + money(M.cfg.feePublic) + ' public, ' + money(M.cfg.feePrivate) + ' per owner (' + money(M.cfg.feeAllSold) + ' once all are sold).</div></div>';
   }
+  /* the real-dice pad: tap the faces your physical dice show, then "Use these dice" */
+  let pad = {}, padKind = '', homeFaces = null;
+  const PADSPEC = { order: [['w1', 'Your die', false]], region: [['col', 'Coloured die', true], ['w1', 'White die', false], ['w2', 'White die', false]], move: [['w1', 'First die', false], ['w2', 'Second die', false]] };
+  PADSPEC.city = PADSPEC.region; PADSPEC.home1 = PADSPEC.region; PADSPEC.home2 = PADSPEC.region;
+  function padHtml(kind, label) {
+    if (padKind !== kind) { pad = {}; padKind = kind; }
+    const spec = (kind === 'move' && g.bonus) ? [['w1', 'The extra die', false]] : PADSPEC[kind], done = spec.every(s => pad[s[0]] >= 1);
+    let hint = '';
+    if (done && kind === 'move') hint = '= ' + spec.reduce((a, s) => a + pad[s[0]], 0) + ' pips' + (!g.bonus && pad.w1 === 6 && pad.w2 === 6 ? ' &mdash; DOUBLE SIX!' : '');
+    else if (done && kind !== 'order') {
+      const par = pad.col % 2 ? 'odd' : 'even', sum = pad.w1 + pad.w2;
+      if (kind === 'region' || kind === 'home1') hint = par + ' die, white ' + sum + ' &rarr; <b>' + esc(M.tracker.regions[par][sum]) + '</b>';
+      else { const rg = kind === 'home2' ? M.tracker.regions[homeFaces.col % 2 ? 'odd' : 'even'][homeFaces.w1 + homeFaces.w2] : g.region, tab = M.tracker.cityTables[rg]; hint = par + ' die, white ' + sum + ' &rarr; <b>' + esc(tab ? tab[par][sum] : rg) + '</b>'; }
+    }
+
+    return '<div class="pad"><div class="padtitle">&#127922; ' + label + '</div>' + spec.map(s => '<div class="padrow"><span class="padlab">' + s[1] + '</span>' + [1, 2, 3, 4, 5, 6].map(v => '<button class="pb' + (pad[s[0]] === v ? ' sel' : '') + '" data-act="pad" data-k="' + s[0] + '" data-v="' + v + '">' + dieHtml(v, s[2], true) + '</button>').join('') + '</div>').join('') + '<div class="padhint">' + (hint || '&nbsp;') + '</div><button class="b pri big" data-act="padgo" data-kind="' + kind + '"' + (done ? '' : ' disabled') + '>Use these dice</button></div>';
+  }
+  const rollUI = (kind, act, label, extra) => prefs.manual ? padHtml(kind, label) : '<button class="b pri big dicebtn" data-act="' + act + '">&#127922; ' + label + '</button>' + (extra || '');
   function manualForm(kind) {
     return '<div class="manual"><span class="muted">Dice by hand:</span> <select id="mpar"><option value="odd">odd</option><option value="even">even</option></select> colour die &middot; white sum <select id="msum">' +
       [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(n => '<option>' + n + '</option>').join('') + '</select> <button class="b" data-act="mdest" data-k="' + kind + '">Use</button></div>';
@@ -425,16 +444,16 @@
     }
     h += '<div class="who"><span class="dot" style="background:' + COLORS[p.id % COLORS.length] + '"></span><b>' + esc(p.name) + '</b>' + (p.bot ? ' (bot)' : '') + ' &mdash; round ' + g.round + '</div>';
     if (p.bot) return h + '<div class="muted">' + (paused ? 'Paused.' : 'Bot is playing&hellip;') + '</div><div class="row"><button class="b" data-act="pause">' + (paused ? 'Resume bots' : 'Pause bots') + '</button> <button class="b" data-act="skip">Skip to the next human</button></div>';
-    if (g.phase === 'order') h += '<button class="b pri big" data-act="rollorder">&#127922; Roll a die to go first (' + esc(p.name) + ')</button>';
-    else if (g.phase === 'home') h += '<div>Roll for your home city (region, then city).</div><button class="b pri big" data-act="rollhome">&#127922; Roll for home city (' + esc(p.name) + ')</button>';
+    if (g.phase === 'order') h += rollUI('order', 'rollorder', 'Roll a die to go first (' + esc(p.name) + ')');
+    else if (g.phase === 'home') h += '<div>Roll for your home city (region, then city).</div>' + (prefs.manual ? padHtml(homeFaces ? 'home2' : 'home1', homeFaces ? 'Home city: the second roll' : 'Home city: the first roll (region)') : '<button class="b pri big" data-act="rollhome">&#127922; Roll for home city (' + esc(p.name) + ')</button>');
     else if (g.phase === 'dest') {
       if (g.stage === 'declare') h += '<div class="win">You have ' + money(p.cash) + '. You may <b>declare for home</b> (' + esc(p.home) + ') or keep rolling destinations if it looks risky. Any player who crosses your spot (a pip or a city) on their move catches you, and nobody can turn back on a track: you pay them ' + money(M.cfg.catchFee) + ' and must run a new destination.</div><button class="b pri big" data-act="declare">&#127968; Declare: head for ' + esc(p.home) + '</button><button class="b big" data-act="rolldest">&#127922; Not yet: roll a destination instead</button>';
-      if (g.stage === 'region') h += '<button class="b pri big dicebtn" data-act="rollregion">&#127922; Roll 1 of 2: destination region</button>' + (prefs.manual ? manualForm('region') : '');
+      if (g.stage === 'region') h += rollUI('region', 'rollregion', 'Roll 1 of 2: destination region');
       if (g.stage === 'pick') h += '<div>You rolled your own region. Choose any region:</div><div class="chips">' + M.regions.filter(r => r.name !== B.regionOf(p.loc)).map(r => '<button class="b chip" style="border-color:' + r.line + '" data-act="pick" data-r="' + esc(r.name) + '">' + esc(r.name) + '</button>').join('') + '</div>';
-      if (g.stage === 'city') h += '<button class="b pri big dicebtn" data-act="rollcity">&#127922; Roll 2 of 2: city in ' + esc(g.region) + (P.regionCities[g.region] && P.regionCities[g.region].length === 1 ? ' (only one city)' : '') + '</button>' + (prefs.manual ? manualForm('city') : '');
+      if (g.stage === 'city') h += (prefs.manual && !(P.regionCities[g.region] && P.regionCities[g.region].length === 1)) ? padHtml('city', 'Roll 2 of 2: city in ' + esc(g.region)) : '<button class="b pri big dicebtn" data-act="rollcity">&#127922; Roll 2 of 2: city in ' + esc(g.region) + (P.regionCities[g.region] && P.regionCities[g.region].length === 1 ? ' (only one city)' : '') + '</button>';
     } else if (g.phase === 'route') {
       const left = p.path.slice(p.h).reduce((s, st) => s + st.dots, 0) - p.dd;
-      h += '<button class="b pri big dicebtn" data-act="rollmove">&#127922; Roll to move (' + (g.bonus ? '1 die, ' + UP + '' : '2 dice') + ')</button>' + (prefs.manual ? '<div class="manual"><span class="muted">Dots by hand:</span> <input id="mdots" type="number" min="1" max="18" value="7"> <button class="b" data-act="mmove">Use</button></div>' : '') +
+      h += rollUI('move', 'rollmove', 'Roll to move (' + (g.bonus ? '1 die, ' + UP + '' : '2 dice') + ')') +
         '<div class="trip">To <b>' + esc(p.dest) + '</b> &middot; ' + left + ' dots left &middot; pays ' + money(B.payoff(p.origin, p.dest)) + '</div>' + routeBox(p);
     } else if (g.phase === 'walk' && g.walk) {
       const w = g.walk, fe = B.walkFees(g);
@@ -517,7 +536,7 @@
     $('round').textContent = 'Round ' + g.round;
     $('cash').innerHTML = g.players.map(p => '<div class="cc' + (p.id === g.turn && g.phase !== 'over' ? ' on' : '') + '" style="border-color:' + COLORS[p.id % COLORS.length] + '"><b>' + esc(p.name) + '</b><span class="' + (p.cash < 0 ? 'neg' : '') + '">' + money(p.cash) + '</span></div>').join('');
     $('players').innerHTML = playersHtml(); $('actions').innerHTML = actionsHtml(); $('dicebox').innerHTML = diceHtml(); $('rails').innerHTML = railsHtml(); $('log').innerHTML = logHtml(); renderTip();
-    updateMap(); autosave(); cashFloats();
+    updateMap(); autosave(); cashFloats(); turnBanner();
   }
   function autosave() { try { if (g.phase === 'over') localStorage.removeItem(SAVE); else localStorage.setItem(SAVE, JSON.stringify(g)); } catch (e) { /* storage full or blocked */ } }
 
@@ -572,9 +591,24 @@
     setTimeout(() => { if (hi === k.rail) hi = null; flashIds = []; if (g) { updateMap(); $('rails').innerHTML = railsHtml(); } }, 4800);
     introUntil = performance.now() + (prefs.speed <= 120 ? 800 : 3000);
   }
+  /* screen modes: "pass the device" puts a cover up before each human's turn; "one shared screen" shows a big whose-turn banner instead */
+  let lastCoverHuman = -1;
+  const PHASE_TXT = { order: 'rolls a die to go first', home: 'rolls for a home city', dest: 'rolls for a destination', route: 'rolls to move', walk: 'moves', buy: 'may make one purchase' };
+  function applyModes() { document.body.classList.toggle('shared', prefs.screen === 'shared'); }
+  function passCover() {
+    const cv = $('pass'); if (!cv || !g) return; if (g.phase === 'over') { cv.hidden = true; return; }
+    const p = B.cur(g); if (prefs.screen === 'shared' || p.bot || g.players.filter(q => !q.bot).length < 2 || lastCoverHuman === p.id) return;
+    lastCoverHuman = p.id; cv.style.background = COLORS[p.id % COLORS.length];
+    cv.innerHTML = '<div class="pc1">Pass the device to</div><div class="pc2">' + esc(p.name) + '</div><button class="b big" id="pass-ok">I am ' + esc(p.name) + ': start my turn</button>';
+    cv.hidden = false; $('pass-ok').onclick = () => { cv.hidden = true; };
+  }
+  function turnBanner() {
+    const tb = $('turnbar'); if (!tb) return; if (!g || prefs.screen !== 'shared' || g.phase === 'over') { tb.hidden = true; return; }
+    const p = B.cur(g); tb.hidden = false; tb.style.background = COLORS[p.id % COLORS.length]; tb.innerHTML = '<b>' + esc(p.name) + '</b> ' + (p.bot ? 'is playing&hellip;' : (PHASE_TXT[g.phase] || '') + (prefs.manual && /^(order|home|dest|route)$/.test(g.phase) ? ' with their real dice' : ''));
+  }
   function announce() { // popups for what just happened: arrivals and a rail bought into someone's destination
     if (!g) return;
-    if (lastG !== g) { lastG = g; seenArrival = g.arrival ? g.arrival.n : 0; seenTaunt = g.taunt ? g.taunt.n : 0; seenEv = g.evn || 0; prevCash = g.players.map(p => p.cash); return; }
+    if (lastG !== g) { lastG = g; lastCoverHuman = -1; seenArrival = g.arrival ? g.arrival.n : 0; seenTaunt = g.taunt ? g.taunt.n : 0; seenEv = g.evn || 0; prevCash = g.players.map(p => p.cash); return; }
     if (g.arrival && g.arrival.n !== seenArrival) { seenArrival = g.arrival.n; const a = g.arrival, pl = g.players[a.id], col = COLORS[a.id % COLORS.length];
       toast('<b style="color:' + col + '">' + esc(pl.name) + '</b> arrives in <b>' + esc(a.city) + '</b> &nbsp;<span class="gain">+' + money(a.pays) + '</span>', 2600, col); flashCity(a.city, col); }
     if (g.taunt && g.taunt.n !== seenTaunt) { seenTaunt = g.taunt.n; setTimeout(() => lucanored(g.taunt), 500); }
@@ -582,7 +616,7 @@
   /* ---------- turn flow ---------- */
   let flashTimer = 0;
   function afterAction() {
-    render(); announce();
+    render(); announce(); passCover();
     if (g.phase !== 'over') { const key = g.round + ':' + g.turn; if (key !== lastKey) { lastKey = key; turnIntro(); } }
     scheduleBot();
   }
@@ -596,15 +630,15 @@
     animateView(vbFull, 450, () => setTimeout(() => animateView(viewAround(pos, vbFull.w * 0.45), 650), 600));
   }
   /* ---------- the 3D dice overlay (dice3d.js from the jamb game) and the map flashes ---------- */
-  function rollFx(items, done, quick) {
+  function rollFx(items, done, quick, still) {
     const ov = $('rollov'), box = $('rdice'); let i = 0, ended = false, tm = 0;
     const end = () => { if (ended) return; ended = true; clearTimeout(tm); ov.hidden = true; ov.onclick = null; done && done(); };
     const next = () => {
       clearTimeout(tm); if (i >= items.length) { end(); return; }
       const it = items[i++]; ov.hidden = false; $('rt1').textContent = it.title; $('rt2').textContent = ' '; box.innerHTML = '';
-      if (window.Dice3D) window.Dice3D.sync(box, it.vals, { anim: it.vals.map(() => true), mode: quick ? 'quick' : 'full' });
+      if (window.Dice3D) window.Dice3D.sync(box, it.vals, { anim: it.vals.map(() => !still), mode: still ? 'off' : (quick ? 'quick' : 'full') });
       [].forEach.call(box.children, (d, k) => { const red = it.red && k === 0; d.style.setProperty('--die', red ? '#c0392b' : '#fffaf0'); d.style.setProperty('--pip', red ? '#fff' : '#25221c'); });
-      tm = setTimeout(() => { $('rt2').textContent = it.text; if (it.six) celebrateSix(it.six === 'big'); tm = setTimeout(next, quick ? 700 : 1300); }, quick ? 800 : 3000);
+      tm = setTimeout(() => { $('rt2').textContent = it.text; if (it.six) celebrateSix(it.six === 'big'); tm = setTimeout(next, still ? 1500 : (quick ? 700 : 1300)); }, still ? 300 : (quick ? 800 : 3000));
     };
     ov.onclick = next; next();
   }
@@ -644,11 +678,11 @@
     d.querySelectorAll('[data-r]').forEach(b => { b.onclick = () => { const name = b.dataset.r; d.close(); B.pickRegion(g, name); flashRegion(name); afterAction(); }; });
     d.showModal();
   }
-  function playFx(kind, who, id, quick) {
-    const items = (prefs.manual || (quick && prefs.speed <= 120)) ? [] : fxItems(kind, who); anim = { fx: 1 };
+  function playFx(kind, who, id, quick, still) {
+    const items = (quick && prefs.speed <= 120) ? [] : fxItems(kind, who); anim = { fx: 1 };
     const finish = () => { anim = null; flashFor(kind, id); afterAction(); if (kind === 'region' && g.stage === 'pick' && !B.cur(g).bot) setTimeout(openPickPopup, prefs.speed <= 120 ? 300 : 1900); };
     if (!items.length) { finish(); return; }
-    rollFx(items, finish, quick);
+    rollFx(items, finish, quick, still);
   }
   function scheduleBot() {
     clearTimeout(botTimer); if (!g || g.phase === 'over' || paused) return;
@@ -703,6 +737,16 @@
     else if (a === 'undo') { B.undoWalk(g); }
     else if (a === 'autowalk') { B.autoWalk(g); }
     else if (a === 'finish') { B.commitWalk(g); }
+    else if (a === 'pad') { pad[el.dataset.k] = +el.dataset.v; render(); return; }
+    else if (a === 'padgo') {
+      const kind = el.dataset.kind, f = Object.assign({}, pad), face = { col: f.col, w1: f.w1, w2: f.w2 }; pad = {}; padKind = '';
+      if (kind === 'order') { B.rollOrder(g, f.w1); fx = 'order'; }
+      else if (kind === 'region') { B.rollRegion(g, face); fx = 'region'; }
+      else if (kind === 'city') { B.rollCity(g, face); routeMode = 'balanced'; fx = 'city'; }
+      else if (kind === 'move') { const faces = g.bonus ? [f.w1] : [f.w1, f.w2]; if (prefs.step) B.rollMoveStep(g, faces); else B.rollMove(g, faces); fx = 'move'; }
+      else if (kind === 'home1') { const rg = M.tracker.regions[face.col % 2 ? 'odd' : 'even'][face.w1 + face.w2]; if (M.tracker.cityTables[rg]) { homeFaces = face; render(); return; } B.rollHomeStep(g, face, null); fx = 'home'; }
+      else if (kind === 'home2') { B.rollHomeStep(g, homeFaces, face); homeFaces = null; fx = 'home'; }
+    }
     else if (a === 'mdest') { const m = { parity: $('mpar').value, sum: +$('msum').value }; if (el.dataset.k === 'region') B.rollRegion(g, m); else { B.rollCity(g, m); routeMode = 'balanced'; } }
     else if (a === 'mmove') { const n = Math.max(1, Math.min(18, +$('mdots').value || 7)); if (prefs.step) B.rollMoveStep(g, n); else B.rollMove(g, n); }
     else if (a === 'buy') { B.buyRail(g, p.id, el.dataset.r); }
@@ -715,7 +759,7 @@
     else if (a === 'skip') { for (let i = 0; i < 400 && g.phase !== 'over' && B.cur(g).bot; i++) B.botAct(g); }
     else if (a === 'export') { download('iron-meridian-game.json', JSON.stringify(B.exportLog(g), null, 1)); return; }
     else if (a === 'new') { openSetup(); return; }
-    if (fx && !prefs.manual) { playFx(fx, who, whoId, false); return; }
+    if (fx) { playFx(fx, who, whoId, false, prefs.manual); return; }
     afterAction();
   }
   function download(name, text) { const b = new Blob([text], { type: 'application/json' }), u = URL.createObjectURL(b), a = document.createElement('a'); a.href = u; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(u), 1000); }
@@ -738,7 +782,8 @@
     if (e.target.id === 'tgt') { prefs.tight = e.target.checked; applyTight(); savePrefs(); }
     if (e.target.id === 'spd') { prefs.speed = +e.target.value; savePrefs(); }
     if (e.target.id === 'fol') { prefs.follow = e.target.checked; savePrefs(); }
-    if (e.target.id === 'man') { prefs.manual = e.target.checked; savePrefs(); render(); }
+    if (e.target.id === 'dsel') { prefs.dice = e.target.value; prefs.manual = prefs.dice === 'real'; savePrefs(); pad = {}; padKind = ''; render(); }
+    if (e.target.id === 'ssel') { prefs.screen = e.target.value; savePrefs(); applyModes(); render(); }
   });
   $('zin').onclick = () => zoomAt(1 / 1.3, vb.x + vb.w / 2, vb.y + vb.h / 2);
   $('zout').onclick = () => zoomAt(1.3, vb.x + vb.w / 2, vb.y + vb.h / 2);
@@ -750,7 +795,7 @@
   const NAMES = ['Anna', 'Bo', 'Cy', 'Dee', 'Eli', 'Fay'];
   function openSetup() {
     const d = $('dlg'), saved = (() => { try { return localStorage.getItem(SAVE); } catch (e) { return null; } })();
-    d.innerHTML = '<h2>New game</h2><div class="row" style="margin:0 0 8px"><label>Era <select id="era-sel">' + ERAS.map(e => '<option value="' + e[0] + '"' + (e[0] === ERA.id ? ' selected' : '') + '>' + e[1] + '</option>').join('') + '</select></label><span class="muted">the board, the rail companies, the city names and the fast train change</span></div><div class="presets"><button class="b" data-pre="1">You vs 1 bot</button><button class="b" data-pre="2">You vs 2 bots</button><button class="b" data-pre="3">3 people, one device</button><button class="b" data-pre="4">Watch 3 bots</button></div>' +
+    d.innerHTML = '<h2>New game</h2><div class="row" style="margin:0 0 8px"><label>Era <select id="era-sel">' + ERAS.map(e => '<option value="' + e[0] + '"' + (e[0] === ERA.id ? ' selected' : '') + '>' + e[1] + '</option>').join('') + '</select></label><span class="muted">the board, the rail companies, the city names and the fast train change</span></div><div class="grid"><label>Dice <select id="dice-set"><option value="digital"' + (prefs.dice !== 'real' ? ' selected' : '') + '>Digital (3D dice on screen)</option><option value="real"' + (prefs.dice === 'real' ? ' selected' : '') + '>Real dice (you roll and tap what they show)</option></select></label><label>Screen <select id="screen-set"><option value="pass"' + (prefs.screen !== 'shared' ? ' selected' : '') + '>One device passed around</option><option value="shared"' + (prefs.screen === 'shared' ? ' selected' : '') + '>One shared screen on the table</option></select></label></div><div class="presets"><button class="b" data-pre="1">You vs 1 bot</button><button class="b" data-pre="2">You vs 2 bots</button><button class="b" data-pre="3">3 people, one device</button><button class="b" data-pre="4">Watch 3 bots</button></div>' +
       '<div id="prow"></div><div class="grid"><label>Players <select id="np">' + [2, 3, 4, 5, 6].map(n => '<option' + (n === 3 ? ' selected' : '') + '>' + n + '</option>').join('') + '</select></label>' +
       '<label>Start cash ($K) <input id="cs" type="number" value="' + M.cfg.start / 1000 + '"></label><label>Win cash ($K) <input id="cw" type="number" value="' + M.cfg.win / 1000 + '"></label>' +
       '<label>' + UP + ' ($K, 0 = none) <input id="cc" type="number" value="' + M.cfg.superChief / 1000 + '"></label><label>Seed (blank = random) <input id="sd" type="text" placeholder="e.g. 42"></label></div>' +
@@ -761,6 +806,7 @@
     d.querySelectorAll('[data-pre]').forEach(b => b.onclick = () => { const k = +b.dataset.pre; $('np').value = k === 1 ? 2 : (k === 2 ? 3 : 3); rows(); const sel = $('prow').querySelectorAll('select'); sel.forEach((s, i) => { s.value = k === 1 ? (i === 0 ? 'human' : 'bot') : k === 2 ? (i === 0 ? 'human' : 'bot') : k === 3 ? 'human' : 'bot'; }); });
     $('cancel').onclick = () => d.close();
     $('go').onclick = () => {
+      prefs.dice = $('dice-set').value; prefs.manual = prefs.dice === 'real'; prefs.screen = $('screen-set').value; savePrefs(); applyModes(); pad = {}; padKind = ''; homeFaces = null;
       const pl = [...$('prow').querySelectorAll('.pr')].map(r => ({ name: r.querySelector('input').value.trim() || 'Player', bot: r.querySelector('select').value === 'bot' }));
       const sd = $('sd').value.trim(), seed = sd ? (isNaN(+sd) ? [...sd].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) : +sd) : 0;
       g = B.newGame({ players: pl, start: +$('cs').value * 1000, win: +$('cw').value * 1000, superChief: +$('cc').value * 1000, seed }); paused = false; routeMode = 'balanced'; d.close(); afterAction();
@@ -797,7 +843,7 @@
   $('hsold').onchange = e => { prefs.hideSold = e.target.checked; savePrefs(); if (g) $('rails').innerHTML = railsHtml(); };
   document.addEventListener('toggle', e => { const d = e.target; if (d.dataset && d.dataset.grp) { prefs.shut = prefs.shut || {}; prefs.shut[d.dataset.grp] = !d.open; savePrefs(); } }, true);
   $('bsave').onclick = () => { if (g) download('iron-meridian-save.json', JSON.stringify(g)); };
-  $('hm').checked = prefs.homes !== false; $('stp').checked = prefs.step !== false; $('tg').checked = prefs.tags !== false; $('crd').checked = !!prefs.cards; $('trl').checked = prefs.trails !== false; $('pln').checked = prefs.plain !== false; $('pal').value = prefs.palette || 'classic'; $('thk').checked = !!prefs.thick; $('tgt').checked = !!prefs.tight; $('spd').value = String(prefs.speed); $('fol').checked = prefs.follow; $('man').checked = prefs.manual;
+  $('hm').checked = prefs.homes !== false; $('stp').checked = prefs.step !== false; $('tg').checked = prefs.tags !== false; $('crd').checked = !!prefs.cards; $('trl').checked = prefs.trails !== false; $('pln').checked = prefs.plain !== false; $('pal').value = prefs.palette || 'classic'; $('thk').checked = !!prefs.thick; $('tgt').checked = !!prefs.tight; $('spd').value = String(prefs.speed); $('fol').checked = prefs.follow; $('dsel').value = prefs.dice || 'digital'; $('ssel').value = prefs.screen || 'pass'; applyModes();
 
   buildMap(); drawEra(); if (prefs.tight || prefs.cards) applyTight(); updateMap();
   window.baronDebug = { B, ERA, drawEra, drawTrain, el, laneOrders, celebrateSix, toast, floatMoney, flyMoney, lucanored, get g() { return g; }, set g(v) { g = v; }, render, afterAction, handleMapClick, selectRail, closeTip, turnIntro };

@@ -55,6 +55,17 @@ header{display:flex;gap:8px;align-items:center;padding:6px 10px;background:#2239
 #era{position:absolute;right:8px;bottom:8px;z-index:12;display:flex;align-items:center;gap:6px;background:linear-gradient(135deg,#fff6d2,#f1dc99);border:3px solid #9a7200;border-radius:10px;padding:3px 10px 3px 6px;box-shadow:0 3px 10px #0005;pointer-events:none;opacity:.96}
 #era b{display:block;font-size:14px;color:#3a2a00;white-space:nowrap}#era span{font-size:11px;color:#6b4e00;white-space:nowrap}
 @media (max-width:520px){#era{transform:scale(.82);transform-origin:right bottom}}
+.pad{border:2px solid var(--line);border-radius:10px;background:#fff;padding:6px 8px}
+.padtitle{font-weight:800;margin-bottom:2px}.padrow{display:flex;align-items:center;gap:4px;margin:4px 0}.padlab{width:78px;font-size:12px;color:var(--mut);flex:none}
+.pb{flex:1;padding:2px;border:2px solid #8a8370;border-radius:9px;background:#fff;cursor:pointer;display:flex;justify-content:center}
+.pb .pd{margin:0;width:100%;max-width:38px;height:auto;aspect-ratio:1;animation:none}.pd.still{animation:none}
+.pb.sel{border-color:var(--pri);background:#e8f1fb;box-shadow:0 0 0 3px var(--pri)}
+.padhint{min-height:22px;font-size:15px;margin:4px 0}.pad .b.big{margin-top:2px}.pad .b:disabled{opacity:.45;cursor:default}
+#pass{position:fixed;inset:0;z-index:300;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:#fff;text-align:center;padding:20px}
+#pass[hidden]{display:none}.pc1{font-size:22px;opacity:.9}.pc2{font-size:64px;font-weight:900;text-shadow:0 3px 0 #0004}#pass .b{max-width:420px;font-size:20px;padding:16px}
+#turnbar{color:#fff;border-radius:10px;padding:10px 14px;font-size:20px;text-align:center;box-shadow:0 2px 8px #0003}#turnbar[hidden]{display:none}#turnbar b{font-size:26px}
+.shared #side{font-size:16px}.shared .pb .pd{max-width:52px}.shared .padtitle{font-size:19px}.shared .padlab{width:96px;font-size:14px}.shared .b.big{font-size:19px;padding:14px}
+@media (min-width:901px){.shared #side{flex-basis:470px}}
 .railg.owned{display:none}
 .mfloat{position:fixed;z-index:100;transform:translateX(-50%);font-weight:900;font-size:22px;pointer-events:none;text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 6px #fff;animation:mflo 2.3s ease-out forwards;opacity:0}
 .mfloat.up{color:#18862f}.mfloat.dn{color:#c0392b}
@@ -179,6 +190,7 @@ dialog h2{margin-top:0}.rules li{margin-bottom:5px}
    <div class="mapctl"><button id="zin" title="Zoom in">+</button><button id="zout" title="Zoom out">&minus;</button><button id="zall" title="Whole map">&#8962;</button><button id="ztight" title="Tight map: playable area only">&#9635;</button><button id="znow" title="Centre on the player">&#9678;</button></div>
   </section>
   <aside id="side">
+   <div id="turnbar" hidden></div>
    <div class="panel" id="players"></div>
    <div class="panel"><div id="actions"></div><div id="dicebox" style="margin-top:6px"></div></div>
    <details class="panel" id="railsec" open><summary>Rails</summary><label class="hs"><input type="checkbox" id="hsold"> Hide sold rails</label> <span class="muted">(tap a row to find it on the map)</span><div id="rails"></div></details>
@@ -186,12 +198,14 @@ dialog h2{margin-top:0}.rules li{margin-bottom:5px}
   </aside>
  </div>
 </div>
+<div id="pass" hidden></div>
 <dialog id="dlg"></dialog>
 <dialog id="set"><h2>Settings</h2>
  <div class="setl">
   <label>Bot speed <select id="spd"><option value="120">fast</option><option value="650">normal</option><option value="1300">slow</option></select></label>
   <label><input type="checkbox" id="fol"> Camera follows the player</label>
-  <label><input type="checkbox" id="man"> Dice by hand (type in your physical dice)</label>
+  <label>Dice <select id="dsel"><option value="digital">Digital (3D dice on screen)</option><option value="real">Real dice (tap what they show)</option></select></label>
+  <label>Screen <select id="ssel"><option value="pass">One device passed around</option><option value="shared">One shared screen on the table</option></select></label>
   <label><input type="checkbox" id="stp"> Click each pip to move</label>
   <label><input type="checkbox" id="hm"> Triangles on home cities</label>
   <label><input type="checkbox" id="tg"> Rail codes on the map</label>

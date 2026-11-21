@@ -100,9 +100,9 @@
     }
     /* who goes first: every player rolls one die, the highest wins; tied players roll again among themselves until one is left.
        The seating order never changes: play starts with the winner and goes round the table in seat order. */
-    function rollOrder(g) {
+    function rollOrder(g, face) {
       const s = g.setup; if (g.phase !== 'order' || !s) return null;
-      const pi = s.con[s.i], p = g.players[pi], v = d6(g); s.rolls[pi] = { a: v, sum: v, round: s.round }; g.dice = { kind: 'order', rolls: [v], sum: v };
+      const pi = s.con[s.i], p = g.players[pi], v = (face >= 1 && face <= 6) ? face : d6(g); s.rolls[pi] = { a: v, sum: v, round: s.round }; g.dice = { kind: 'order', rolls: [v], sum: v };
       log(g, p.name + ' rolled ' + v + (s.round > 1 ? ' (re-roll)' : '') + ' to go first.', p.id);
       s.i++;
       if (s.i < s.con.length) { g.turn = s.con[s.i]; return v; }
@@ -115,11 +115,11 @@
       log(g, g.players[top[0]].name + ' goes first, then play follows the seating order. Now each rolls for a home city, starting with ' + g.players[top[0]].name + '.', g.players[top[0]].id);
       g.phase = 'home'; s.i = 0; g.turn = s.seq[0]; return v;
     }
-    function rollHomeStep(g) { // region roll then city roll, shown together
+    function rollHomeStep(g, m1, m2) { // region roll then city roll, shown together (m1, m2: real dice faces, optional)
       const s = g.setup; if (g.phase !== 'home' || !s) return null;
-      const p = g.players[s.seq[s.i]], r = tableRoll(g), region = M.tracker.regions[r.parity][r.sum], tab = M.tracker.cityTables[region];
+      const p = g.players[s.seq[s.i]], r = tableRoll(g, m1), region = M.tracker.regions[r.parity][r.sum], tab = M.tracker.cityTables[region];
       const d1 = { kind: 'region', ...r, region }; let city = region, d2 = null;
-      if (tab) { const r2 = tableRoll(g); city = tab[r2.parity][r2.sum]; d2 = { kind: 'city', ...r2, region, city }; }
+      if (tab) { const r2 = tableRoll(g, m2); city = tab[r2.parity][r2.sum]; d2 = { kind: 'city', ...r2, region, city }; }
       p.home = p.loc = city; g.destRolls = d2 ? { region: d1, city: d2 } : { region: d1 }; g.dice = d2 || d1; s.last = p.name; g.lastHome = { name: p.name, id: p.id, region: d1, city: d2, home: city };
       log(g, p.name + ' rolled region ' + region + (tab ? ' then city ' + city : '') + ': home is ' + city + ', starting with ' + money(g.cfg.start) + '.', p.id);
       s.i++;
@@ -129,6 +129,7 @@
 
     /* ---------- dice and tables ---------- */
     function tableRoll(g, manual) {
+      if (manual && manual.col) { const w1 = manual.w1, w2 = manual.w2; return { col: manual.col, w1, w2, parity: manual.col % 2 ? 'odd' : 'even', sum: w1 + w2, real: true }; }
       if (manual) return { col: manual.parity === 'odd' ? 1 : 2, w1: 0, w2: 0, parity: manual.parity, sum: manual.sum, manual: true };
       const col = d6(g), w1 = d6(g), w2 = d6(g);
       return { col, w1, w2, parity: col % 2 ? 'odd' : 'even', sum: w1 + w2 };
@@ -287,9 +288,9 @@
 
     /* ---------- movement ---------- */
     function rollMove(g, manualSum) {
-      const p = cur(g), n = g.bonus ? 1 : C.dice, rolls = [];
-      let sum = 0; if (manualSum) { sum = manualSum; } else { for (let i = 0; i < n; i++) { const v = d6(g); rolls.push(v); sum += v; } }
-      g.dice = { kind: 'move', rolls, sum, manual: !!manualSum }; checkDouble6(g, rolls);
+      const p = cur(g), n = g.bonus ? 1 : C.dice, rolls = [], faces = Array.isArray(manualSum);
+      let sum = 0; if (faces) { manualSum.forEach(v => { rolls.push(v); sum += v; }); } else if (manualSum) { sum = manualSum; } else { for (let i = 0; i < n; i++) { const v = d6(g); rolls.push(v); sum += v; } }
+      g.dice = { kind: 'move', rolls, sum, manual: !!manualSum && !faces, real: faces }; checkDouble6(g, rolls);
       return move(g, sum);
     }
     function move(g, n) {
@@ -320,9 +321,9 @@
     }
     /* ---------- step-by-step movement: the player clicks each pip to follow, counting down the roll ---------- */
     function rollMoveStep(g, manualSum) {
-      const p = cur(g), n = g.bonus ? 1 : C.dice, rolls = []; let sum = 0;
-      if (manualSum) sum = manualSum; else for (let i = 0; i < n; i++) { const v = d6(g); rolls.push(v); sum += v; }
-      g.dice = { kind: 'move', rolls, sum, manual: !!manualSum }; checkDouble6(g, rolls);
+      const p = cur(g), n = g.bonus ? 1 : C.dice, rolls = [], faces = Array.isArray(manualSum); let sum = 0;
+      if (faces) manualSum.forEach(v => { rolls.push(v); sum += v; }); else if (manualSum) sum = manualSum; else for (let i = 0; i < n; i++) { const v = d6(g); rolls.push(v); sum += v; }
+      g.dice = { kind: 'move', rolls, sum, manual: !!manualSum && !faces, real: faces }; checkDouble6(g, rolls);
       const first = p.dd > 0 ? p.path[p.h] : null;
       g.walk = { n: sum, rem: sum, segs: [], at: first ? 'hop' : 'city', city: first ? null : p.loc, hop: first ? first.hop : null, from: first ? first.from : null, to: first ? first.to : null, dd: first ? p.dd : 0, done: false, arrived: false };
       g.walk.init = { at: g.walk.at, city: g.walk.city, hop: g.walk.hop, from: g.walk.from, to: g.walk.to, dd: g.walk.dd };
@@ -477,7 +478,7 @@
         if (reg === regionOf(p.loc)) return;
         const cs = P.regionCities[reg]; let cov = 0;
         cs.forEach(c => { if ((P.railsAt[c] || []).some(r => g.owner[r] === p.id)) cov++; });
-        const sc = cov / cs.length + Math.random() * 0.05; if (sc > bs) { bs = sc; best = reg; }
+        const sc = cov / cs.length + rnd(g) * 0.05; if (sc > bs) { bs = sc; best = reg; }
       });
       return best;
     }
