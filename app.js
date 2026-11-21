@@ -28,7 +28,7 @@
   }
   function buildMap() {
     svg.innerHTML = '';
-    ['land', 'fx', 'mark', 'names', 'halo', 'rails', 'route', 'dots', 'tags', 'hit', 'cities', 'steps', 'tokens', 'anim'].forEach(n => { layers[n] = el('g', { id: 'L-' + n }, svg); });
+    ['land', 'fx', 'mark', 'slots', 'names', 'halo', 'rails', 'route', 'dots', 'tags', 'hit', 'cities', 'steps', 'tokens', 'anim'].forEach(n => { layers[n] = el('g', { id: 'L-' + n }, svg); });
     const gray = el('g', { fill: '#ece6d6', stroke: '#b5ae9a', 'stroke-width': 0.6 }, layers.land);
     M.land.filter(l => l.r < 0).forEach(l => el('path', { d: l.d }, gray));
     M.regions.forEach((rg, i) => {
@@ -71,7 +71,11 @@
     (M.tags || []).forEach(t => { add(t.x - 34, t.y - 22); add(t.x + 34, t.y + 22); });
     const pad = 30; return { x: x0 - pad, y: y0 - pad, w: x1 - x0 + 2 * pad, h: y1 - y0 + 2 * pad };
   }
-  function applyTight() { Object.assign(vbFull, prefs.tight ? playBox() : vbAll); vb = Object.assign({}, vbFull); applyView(); }
+  function applyTight() {
+    let box = prefs.tight ? playBox() : Object.assign({}, vbAll);
+    if (prefs.cards) { const f = slotLayout().rect, x0 = Math.min(box.x, f.x), y0 = Math.min(box.y, f.y), x1 = Math.max(box.x + box.w, f.x + f.w), y1 = Math.max(box.y + box.h, f.y + f.h); box = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }; }
+    Object.assign(vbFull, box); vb = Object.assign({}, vbFull); applyView();
+  }
   function applyView() { svg.setAttribute('viewBox', [vb.x, vb.y, vb.w, vb.h].join(' ')); }
   function zoomAt(f, cx, cy) {
     const nw = Math.min(vbFull.w * 1.1, Math.max(300, vb.w * f)), k = nw / vb.w, nh = vb.h * k;
@@ -110,18 +114,42 @@
 
   /* rail tags on the map: plain codes, or cards with the price. A bought rail is filled in its owner's colour with the owner's name. */
   function drawTags() {
-    layers.tags.innerHTML = ''; const cards = !!prefs.cards;
+    layers.tags.innerHTML = '';
     (M.tags || []).forEach(t => {
-      const r = P.rail[t.code], o = g ? g.owner[t.code] : undefined, own = o !== undefined, oc = own ? COLORS[o % COLORS.length] : null;
-      const w = cards ? Math.max(54, 16 + 8.4 * t.code.length) : 10 + 8.4 * t.code.length, h = cards ? 34 : 18;
+      const r = P.rail[t.code], o = g ? g.owner[t.code] : undefined, own = o !== undefined, oc = own ? COLORS[o % COLORS.length] : null, w = 10 + 8.4 * t.code.length;
       const tg = el('g', { 'data-hit': t.code, style: 'cursor:pointer' }, layers.tags);
-      el('rect', { x: t.x - w / 2, y: t.y - h / 2, width: w, height: h, rx: 4, fill: own ? oc : '#fff', stroke: own ? '#111' : r.color, 'stroke-width': own ? 3 : (r.premium ? 2.6 : 1.8) }, tg);
-      if (cards) el('rect', { x: t.x - w / 2 + 1, y: t.y - h / 2 + 1, width: w - 2, height: 5, rx: 2, fill: r.color }, tg);
-      const tx = el('text', { x: t.x, y: cards ? t.y - 0.5 : t.y + 4.6, 'text-anchor': 'middle', 'font-size': 13, 'font-weight': 800, fill: own ? '#fff' : (r.premium ? r.color : '#222'), 'font-family': 'sans-serif' }, tg); tx.textContent = t.code;
-      if (cards) { const sb = el('text', { x: t.x, y: t.y + 12, 'text-anchor': 'middle', 'font-size': 10.5, 'font-weight': 700, fill: own ? '#fff' : '#555', 'font-family': 'sans-serif' }, tg); sb.textContent = own ? g.players[o].name.slice(0, 8) : money(r.price * M.unit); }
+      el('rect', { x: t.x - w / 2, y: t.y - 9, width: w, height: 18, rx: 4, fill: own ? oc : '#fff', stroke: own ? '#111' : r.color, 'stroke-width': own ? 3 : (r.premium ? 2.6 : 1.8) }, tg);
+      const tx = el('text', { x: t.x, y: t.y + 4.6, 'text-anchor': 'middle', 'font-size': 13, 'font-weight': 800, fill: own ? '#fff' : (r.premium ? r.color : '#222'), 'font-family': 'sans-serif' }, tg); tx.textContent = t.code;
     });
-    layers.tags.style.display = (prefs.tags !== false || cards) ? '' : 'none';
+    layers.tags.style.display = prefs.tags === false ? 'none' : '';
   }
+  /* card slots around the board, like the printed version: a placeholder for each rail card. Plain and dashed while the rail is for sale,
+     filled in the owner's colour once bought. Cross-region rails along the top, the west regions down the left, the east regions down the right. */
+  const CW = 200, CH = 84, CG = 8; let slotsCache = null;
+  function slotLayout() {
+    if (slotsCache) return slotsCache;
+    const P0 = playBox(), pos = {}, by = name => M.rails.filter(r => (r.premium ? 'Cross-region' : r.home) === name).sort((a, b) => b.price - a.price);
+    const column = (groups, x) => { const gs = groups.map(by), n = gs.reduce((s2, q) => s2 + q.length, 0), tot = n * (CH + CG) + (gs.length - 1) * 16; let y = P0.y + (P0.h - tot) / 2; gs.forEach(q => { q.forEach(r => { pos[r.code] = { x, y }; y += CH + CG; }); y += 16; }); };
+    column(['British Isles', 'France-Benelux', 'Iberia', 'Italy'], P0.x - CW - 24);
+    column(['Scandinavia-Baltic', 'Germanic Core', 'Alpine-Danube-Poland', 'Balkans & Anatolia'], P0.x + P0.w + 24);
+    const top = by('Cross-region'); let tx = P0.x + (P0.w - top.length * (CW + CG)) / 2; top.forEach(r => { pos[r.code] = { x: tx, y: P0.y - CH - 24 }; tx += CW + CG; });
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9; Object.keys(pos).forEach(k => { const q = pos[k]; x0 = Math.min(x0, q.x); y0 = Math.min(y0, q.y); x1 = Math.max(x1, q.x + CW); y1 = Math.max(y1, q.y + CH); });
+    return (slotsCache = { pos, rect: { x: x0 - 16, y: y0 - 16, w: x1 - x0 + 32, h: y1 - y0 + 32 } });
+  }
+  function drawSlots() {
+    layers.slots.innerHTML = ''; if (!prefs.cards) return; const L = slotLayout();
+    M.rails.forEach(r => {
+      const q = L.pos[r.code]; if (!q) return; const o = g ? g.owner[r.code] : undefined, own = o !== undefined, oc = own ? COLORS[o % COLORS.length] : null, ink = own ? '#fff' : '#222', sub = own ? '#fff' : '#555';
+      const gg = el('g', { 'data-hit': r.code, style: 'cursor:pointer' }, layers.slots);
+      const bx = el('rect', { x: q.x, y: q.y, width: CW, height: CH, rx: 8, fill: own ? oc : '#fffaf0', stroke: own ? '#111' : '#8a8370', 'stroke-width': own ? 4 : 2 }, gg); if (!own) bx.setAttribute('stroke-dasharray', '9 6');
+      el('rect', { x: q.x + 7, y: q.y + 7, width: 11, height: CH - 14, rx: 3, fill: r.color, stroke: '#fff', 'stroke-width': 1.5 }, gg);
+      const t1 = el('text', { x: q.x + 30, y: q.y + 31, 'font-size': 25, 'font-weight': 800, fill: ink, 'font-family': 'sans-serif' }, gg); t1.textContent = r.code;
+      const t2 = el('text', { x: q.x + 30, y: q.y + 51, 'font-size': 13, fill: sub, 'font-family': 'sans-serif' }, gg); t2.textContent = r.name.length > 25 ? r.name.slice(0, 24) + '…' : r.name;
+      const t3 = el('text', { x: q.x + CW - 12, y: q.y + 30, 'text-anchor': 'end', 'font-size': 22, 'font-weight': 800, fill: ink, 'font-family': 'sans-serif' }, gg); t3.textContent = money(r.price * M.unit);
+      const t4 = el('text', { x: q.x + 30, y: q.y + 73, 'font-size': 13, 'font-weight': 700, fill: sub, 'font-family': 'sans-serif' }, gg); t4.textContent = own ? 'Owned by ' + g.players[o].name : 'For sale';
+    });
+  }
+  /* ---------- dynamic map layers ---------- */
   /* ---------- dynamic map layers ---------- */
   function updateMap() {
     document.querySelectorAll('#L-halo .halo').forEach(h => {
@@ -129,7 +157,7 @@
       if (o === undefined) { h.setAttribute('stroke', 'none'); } else { h.setAttribute('stroke', COLORS[o % COLORS.length]); h.setAttribute('stroke-width', P.rail[code].w + 9); h.setAttribute('opacity', 0.75); }
     });
     document.querySelectorAll('#L-rails .railg').forEach(x => x.classList.toggle('flash', x.getAttribute('data-rail') === hi));
-    layers.route.innerHTML = ''; layers.tokens.innerHTML = ''; layers.steps.innerHTML = ''; layers.mark.innerHTML = ''; drawTags();
+    layers.route.innerHTML = ''; layers.tokens.innerHTML = ''; layers.steps.innerHTML = ''; layers.mark.innerHTML = ''; drawTags(); drawSlots();
     if (!g) return;
     const p = B.cur(g);
     if (p.dest && p.path.length && animHide < 0) {
@@ -142,8 +170,13 @@
     const seen = {}, dests = {}, origs = {};
     g.players.forEach(pl => { if (!pl.loc) return; if (pl.dest) { (dests[pl.dest] = dests[pl.dest] || []).push(pl); if (pl.origin && pl.origin !== pl.dest) (origs[pl.origin] = origs[pl.origin] || []).push(pl); } });
     // start and destination markers are solid discs under the tracks, dots and pips (largest first so several players can share a city)
-    Object.keys(origs).forEach(c => origs[c].forEach((pl, i) => { const oc = P.city[c], r = 14 + 7 * (origs[c].length - i); el('circle', { cx: oc.x, cy: oc.y, r: r + 3, fill: '#fff', opacity: 0.8 }, layers.mark); el('circle', { cx: oc.x, cy: oc.y, r, fill: COLORS[pl.id % COLORS.length], opacity: 0.45 }, layers.mark); }));
-    Object.keys(dests).forEach(c => dests[c].forEach((pl, i) => { const dc = P.city[c], r = 17 + 9 * (dests[c].length - i); el('circle', { cx: dc.x, cy: dc.y, r: r + 4, fill: '#fff' }, layers.mark); el('circle', { cx: dc.x, cy: dc.y, r, fill: COLORS[pl.id % COLORS.length] }, layers.mark); }));
+    const disc = (c, cols, r, op) => { // one colour: a solid disc; several players on one city: a pinwheel of equal wedges
+      if (cols.length === 1) { el('circle', { cx: c.x, cy: c.y, r, fill: cols[0], opacity: op }, layers.mark); return; }
+      cols.forEach((col, i) => { const a0 = -Math.PI / 2 + i * 2 * Math.PI / cols.length, a1 = -Math.PI / 2 + (i + 1) * 2 * Math.PI / cols.length;
+        el('path', { d: 'M' + c.x + ',' + c.y + ' L' + (c.x + r * Math.cos(a0)).toFixed(1) + ',' + (c.y + r * Math.sin(a0)).toFixed(1) + ' A' + r + ',' + r + ' 0 0 1 ' + (c.x + r * Math.cos(a1)).toFixed(1) + ',' + (c.y + r * Math.sin(a1)).toFixed(1) + ' Z', fill: col, opacity: op, stroke: '#fff', 'stroke-width': 2 }, layers.mark); });
+    };
+    Object.keys(origs).forEach(k => { const c = P.city[k], r = origs[k].length > 1 ? 25 : 20; el('circle', { cx: c.x, cy: c.y, r: r + 3, fill: '#fff', opacity: 0.8 }, layers.mark); disc(c, origs[k].map(pl => COLORS[pl.id % COLORS.length]), r, 0.45); });
+    Object.keys(dests).forEach(k => { const c = P.city[k], r = dests[k].length > 1 ? 32 : 26; el('circle', { cx: c.x, cy: c.y, r: r + 4, fill: '#fff' }, layers.mark); disc(c, dests[k].map(pl => COLORS[pl.id % COLORS.length]), r, 1); });
     g.players.forEach(pl => {
       if (!pl.loc) return; // still rolling for a home city
       const col = COLORS[pl.id % COLORS.length];
@@ -492,7 +525,7 @@
     if (e.target.id === 'hm') { prefs.homes = e.target.checked; savePrefs(); updateMap(); }
     if (e.target.id === 'stp') { prefs.step = e.target.checked; savePrefs(); }
     if (e.target.id === 'tg') { prefs.tags = e.target.checked; drawTags(); savePrefs(); }
-    if (e.target.id === 'crd') { prefs.cards = e.target.checked; drawTags(); savePrefs(); }
+    if (e.target.id === 'crd') { prefs.cards = e.target.checked; applyTight(); updateMap(); savePrefs(); }
     if (e.target.id === 'tgt') { prefs.tight = e.target.checked; applyTight(); savePrefs(); }
     if (e.target.id === 'spd') { prefs.speed = +e.target.value; savePrefs(); }
     if (e.target.id === 'fol') { prefs.follow = e.target.checked; savePrefs(); }
@@ -554,7 +587,7 @@
   $('bsave').onclick = () => { if (g) download('iron-meridian-save.json', JSON.stringify(g)); };
   $('hm').checked = prefs.homes !== false; $('stp').checked = prefs.step !== false; $('tg').checked = prefs.tags !== false; $('crd').checked = !!prefs.cards; $('tgt').checked = !!prefs.tight; $('spd').value = String(prefs.speed); $('fol').checked = prefs.follow; $('man').checked = prefs.manual;
 
-  buildMap(); if (prefs.tight) applyTight(); updateMap();
+  buildMap(); if (prefs.tight || prefs.cards) applyTight(); updateMap();
   window.baronDebug = { B, get g() { return g; }, set g(v) { g = v; }, render, afterAction, handleMapClick, selectRail, closeTip, turnIntro };
   let saved = null; try { saved = localStorage.getItem(SAVE); } catch (e) { /* none */ }
   if (saved) { try { g = JSON.parse(saved); afterAction(); } catch (e) { openSetup(); } } else { openSetup(); }
