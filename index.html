@@ -124,7 +124,9 @@ header .sp{flex:0}
 #map{width:100%;height:100%;display:block;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none}
 #map text{user-select:none;-webkit-user-select:none;pointer-events:none}
 .mapctl{position:absolute;left:8px;top:8px;display:flex;gap:4px}
-#qroll{position:absolute;right:8px;top:8px;z-index:25;height:38px;padding:0 14px;font-size:16px;font-weight:700;border:2px solid var(--pri);background:var(--pri);color:#fff;border-radius:19px;cursor:pointer;box-shadow:0 3px 10px #0005}#qroll[hidden]{display:none}
+#qact{position:absolute;right:8px;top:8px;z-index:25;display:flex;flex-direction:column;align-items:flex-end;gap:6px}#qact[hidden]{display:none}
+#qact .qb{height:38px;padding:0 14px;font-size:16px;font-weight:700;border:2px solid var(--pri);background:var(--pri);color:#fff;border-radius:19px;cursor:pointer;box-shadow:0 3px 10px #0005}
+#qact .qb.sec{height:32px;font-size:14px;background:#fffffff2;color:var(--pri)}
 .mapctl button{width:34px;height:34px;font-size:18px;border:1px solid #888;background:#fffe;border-radius:6px;cursor:pointer}
 #side{flex:0 0 400px;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:8px;background:var(--bg);border-left:1px solid var(--line)}
 .panel{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px}
@@ -207,7 +209,7 @@ dialog h2{margin-top:0}.rules li{margin-bottom:5px}
    <div id="toast" hidden></div>
    <div id="era"></div>
    <div id="rollov" hidden><div class="rbox"><div id="rt1"></div><div id="rdice"></div><div id="rt2"></div><div class="sk">tap to skip</div></div></div>
-   <button id="qroll" hidden title="Roll the dice">&#127922; Roll</button>
+   <div id="qact" hidden></div>
    <div class="mapctl"><button id="zin" title="Zoom in">+</button><button id="zout" title="Zoom out">&minus;</button><button id="zall" title="Whole map">&#8962;</button><button id="ztight" title="Tight map: playable area only">&#9635;</button><button id="znow" title="Centre on the player">&#9678;</button></div>
   </section>
   <aside id="side">
