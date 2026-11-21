@@ -115,6 +115,10 @@ header .sp{flex:0}
 .rm{display:block;margin:2px 0}
 .manual{margin-top:6px;padding:4px;background:#fff3;border:1px dashed var(--line)}
 .manual input[type=number]{width:60px}
+.pd{display:inline-grid;grid-template:repeat(3,1fr)/repeat(3,1fr);width:32px;height:32px;padding:4px;margin:2px 4px 2px 0;background:#fff;border:2px solid #333;border-radius:8px;vertical-align:middle;box-shadow:0 2px 0 #0003;animation:pdroll .8s cubic-bezier(.2,1.3,.4,1)}
+.pd i{border-radius:50%;display:block}.pd i.on{background:#222}
+.pd.red{background:#c0392b;border-color:#7a1f15}.pd.red i.on{background:#fff}
+@keyframes pdroll{0%{transform:rotate(-540deg) scale(.2);opacity:0}55%{transform:rotate(25deg) scale(1.2);opacity:1}100%{transform:none}}
 .gd{display:inline-block;font-size:34px;line-height:34px;margin-right:2px;color:#222;animation:pop .35s}
 .gd.red{color:#c0392b}
 @keyframes pop{from{transform:scale(1.5) rotate(-20deg);opacity:.2}to{transform:none;opacity:1}}
@@ -200,7 +204,11 @@ dialog h2{margin-top:0}.rules li{margin-bottom:5px}
  </div>
  <div class="row"><button class="b pri" id="bnew">New game</button><button class="b" id="bsave">Save file</button><button class="b" id="brules">Rules</button><button class="b" id="setok">Close</button></div>
 </dialog>
-<script src="data-eurobaron.js"></script>
+<script>
+/* the era chosen in the New game dialog (saved in this browser) or ?era=1913 decides which map file loads */
+(function () { var e = 'classic'; try { var m = location.search.match(/[?&]era=(\w+)/); e = (m && m[1]) || localStorage.getItem('baron.era.v1') || 'classic'; } catch (x) { /* no storage */ }
+  if (['classic', '1913'].indexOf(e) < 0) e = 'classic'; document.write('<script src="' + (e === 'classic' ? 'data-eurobaron.js' : 'data-' + e + '.js') + '"><\/script>'); })();
+</script>
 <script src="engine.js"></script>
 <script src="dice3d.js"></script>
 <script src="app.js"></script>

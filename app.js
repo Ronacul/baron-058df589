@@ -2,10 +2,13 @@
 (function () {
   'use strict';
   const M = window.BARON_MAPS.EU, B = Baron(M), P = B.P, NS = 'http://www.w3.org/2000/svg';
-  const ERA = M.era || { id: 'classic', label: 'Classic', year: '', upgrade: '' + UP + '', short: 'OE', icon: 'steam' }, UP = ERA.upgrade, UPS = ERA.short;
+  const ERA = M.era || { id: 'classic', label: 'Classic', year: '', upgrade: 'Orient Express', short: 'OE', icon: 'steam' }, UP = ERA.upgrade, UPS = ERA.short;
+  const SAVE = 'baron.eu.save.v1' + (ERA.id && ERA.id !== 'classic' ? '.' + ERA.id : ''); // each era keeps its own saved game (classic keeps the original key)
+  const ERAS = [['classic', 'Classic (mixed years)'], ['1913', '1913 Belle Époque']];
+
   const PALETTES = { classic: ['#d7263d', '#1b6ec2', '#2e9e4f', '#e08e0b', '#7b3fb0', '#0f9aa6'], safe: ['#d55e00', '#0072b2', '#009e73', '#e8b800', '#cc79a7', '#444444'], bold: ['#e6194b', '#3a49d8', '#1a9e3c', '#ff8c00', '#8e24aa', '#111111'] };
   let COLORS = PALETTES.classic;
-  const SAVE = 'baron.eu.save.v1', PREF = 'baron.eu.prefs.v2';
+  const PREF = 'baron.eu.prefs.v2';
   const $ = id => document.getElementById(id);
   const esc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const FACE = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
@@ -250,7 +253,7 @@
   function drawEra() { // the plaque in the corner of the board that says which era was chosen
     const box = $('era'); if (!box) return; box.innerHTML = ''; box.style.display = prefs.cards ? 'none' : '';
     const s = el('svg', { viewBox: '-36 -24 72 44', width: 58, height: 36 }, null); box.appendChild(s); drawTrain(s, ERA.icon || 'steam', '#b8860b', '#3a2a00', '', 0.95);
-    const d = document.createElement('div'); d.innerHTML = '<b>' + esc(ERA.year ? ERA.year + ' &middot; ' : '') + esc(ERA.label || 'Classic') + '</b><span>Fast train: ' + esc(UP) + '</span>'; box.appendChild(d); box.title = 'Era: ' + (ERA.label || 'Classic') + '. The upgrade is called the ' + UP + '.';
+    const d = document.createElement('div'); d.innerHTML = '<b>' + esc(ERA.year || '') + (ERA.year ? ' &middot; ' : '') + esc(ERA.label || 'Classic') + '</b><span>Fast train: ' + esc(UP) + '</span>'; box.appendChild(d); box.title = 'Era: ' + (ERA.label || 'Classic') + '. The upgrade is called the ' + UP + '.';
     const h1 = document.querySelector('header h1'); if (h1) h1.textContent = 'Iron Meridian' + (ERA.year ? ' · ' + ERA.year : '');
   }
   /* ---------- dynamic map layers ---------- */
@@ -364,7 +367,8 @@
   }
   /* ---------- side panels ---------- */
   const money = B.money;
-  function dieHtml(v, red) { return '<span class="gd' + (red ? ' red' : '') + '">' + FACE[v] + '</span>'; }
+  const DPIPS = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
+  function dieHtml(v, red) { const on = DPIPS[v] || []; let c = ''; for (let i = 0; i < 9; i++) c += '<i' + (on.indexOf(i) >= 0 ? ' class="on"' : '') + '></i>'; return '<span class="pd' + (red ? ' red' : '') + '" title="' + v + '">' + c + '</span>'; }
   function rollLine(d, label) {
     const dice = d.manual ? '' : dieHtml(d.col, true) + dieHtml(d.w1) + dieHtml(d.w2);
     return '<div>' + label + ' ' + dice + ' <span class="sum">' + d.parity + ' column, white ' + d.sum + ' &rarr; <b>' + esc(d.kind === 'city' ? d.city : d.region) + '</b></span></div>';
@@ -447,10 +451,10 @@
   /* rails grouped like the printed map: the cross-region ones first, then the left side (British, France, Iberia, Italy), then the right (Scandinavia, Germanic, Alpine, Balkans) */
   const GROUP_ORDER = ['British Isles', 'France-Benelux', 'Iberia', 'Italy', 'Scandinavia-Baltic', 'Germanic Core', 'Alpine-Danube-Poland', 'Balkans & Anatolia'];
   /* a rail with more than half of its cities in one region is filed under that region; the rest span regions. These are always cross-region: */
-  const CROSS = { CIWL: 1, LNER: 1, PREUSS: 1 };
+  const CROSS = {}; (ERA.cross || ['CIWL', 'LNER', 'PREUSS']).forEach(c => { CROSS[c] = 1; });
   const groupMemo = {};
   function groupOf(r) {
-    if (groupMemo[r.code]) return groupMemo[r.code]; let name = r.premium ? 'Cross-region' : r.home;
+    if (groupMemo[r.code]) return groupMemo[r.code]; let name = (r.premium || CROSS[r.code]) ? 'Cross-region' : r.home;
     if (r.premium && !CROSS[r.code]) { const cs = [...(P.rail[r.code].cities || [])], by = {}; cs.forEach(c => { const rg = P.city[c] && P.city[c].r; by[rg] = (by[rg] || 0) + 1; }); name = 'Cross-region'; Object.keys(by).forEach(k => { if (by[k] * 2 > cs.length) name = k; }); }
     return (groupMemo[r.code] = name);
   }
@@ -746,13 +750,14 @@
   const NAMES = ['Anna', 'Bo', 'Cy', 'Dee', 'Eli', 'Fay'];
   function openSetup() {
     const d = $('dlg'), saved = (() => { try { return localStorage.getItem(SAVE); } catch (e) { return null; } })();
-    d.innerHTML = '<h2>New game</h2><div class="presets"><button class="b" data-pre="1">You vs 1 bot</button><button class="b" data-pre="2">You vs 2 bots</button><button class="b" data-pre="3">3 people, one device</button><button class="b" data-pre="4">Watch 3 bots</button></div>' +
+    d.innerHTML = '<h2>New game</h2><div class="row" style="margin:0 0 8px"><label>Era <select id="era-sel">' + ERAS.map(e => '<option value="' + e[0] + '"' + (e[0] === ERA.id ? ' selected' : '') + '>' + e[1] + '</option>').join('') + '</select></label><span class="muted">the board, the rail companies, the city names and the fast train change</span></div><div class="presets"><button class="b" data-pre="1">You vs 1 bot</button><button class="b" data-pre="2">You vs 2 bots</button><button class="b" data-pre="3">3 people, one device</button><button class="b" data-pre="4">Watch 3 bots</button></div>' +
       '<div id="prow"></div><div class="grid"><label>Players <select id="np">' + [2, 3, 4, 5, 6].map(n => '<option' + (n === 3 ? ' selected' : '') + '>' + n + '</option>').join('') + '</select></label>' +
       '<label>Start cash ($K) <input id="cs" type="number" value="' + M.cfg.start / 1000 + '"></label><label>Win cash ($K) <input id="cw" type="number" value="' + M.cfg.win / 1000 + '"></label>' +
       '<label>' + UP + ' ($K, 0 = none) <input id="cc" type="number" value="' + M.cfg.superChief / 1000 + '"></label><label>Seed (blank = random) <input id="sd" type="text" placeholder="e.g. 42"></label></div>' +
       '<div class="row"><button class="b pri" id="go">Start</button> <button class="b" id="cancel">Cancel</button>' + (saved ? ' <button class="b" id="resume">Resume saved game</button>' : '') + ' <label class="ld">Load game file <input type="file" id="lf" accept=".json"></label></div>';
     const rows = () => { const n = +$('np').value, pr = $('prow'); const old = [...pr.querySelectorAll('.pr')].map(r => [r.querySelector('input').value, r.querySelector('select').value]); pr.innerHTML = ''; for (let i = 0; i < n; i++) { const o = old[i] || [NAMES[i], i === 0 ? 'human' : 'bot']; pr.insertAdjacentHTML('beforeend', '<div class="pr"><span class="dot" style="background:' + COLORS[i] + '"></span><input value="' + esc(o[0]) + '"> <select><option value="human"' + (o[1] === 'human' ? ' selected' : '') + '>person</option><option value="bot"' + (o[1] === 'bot' ? ' selected' : '') + '>bot</option></select></div>'); } };
     rows(); $('np').onchange = rows;
+    $('era-sel').onchange = e => { try { localStorage.setItem('baron.era.v1', e.target.value); } catch (x) { /* no storage */ } location.href = location.pathname; };
     d.querySelectorAll('[data-pre]').forEach(b => b.onclick = () => { const k = +b.dataset.pre; $('np').value = k === 1 ? 2 : (k === 2 ? 3 : 3); rows(); const sel = $('prow').querySelectorAll('select'); sel.forEach((s, i) => { s.value = k === 1 ? (i === 0 ? 'human' : 'bot') : k === 2 ? (i === 0 ? 'human' : 'bot') : k === 3 ? 'human' : 'bot'; }); });
     $('cancel').onclick = () => d.close();
     $('go').onclick = () => {
