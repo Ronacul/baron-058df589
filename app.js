@@ -199,7 +199,11 @@
     return (slotsCache = { pos, heads, rect: { x: x0 - 16, y: y0 - 16, w: x1 - x0 + 32, h: y1 - y0 + 32 } });
   }
   function drawSlots() {
-    layers.slots.innerHTML = ''; if (!prefs.cards) return; const L = slotLayout();
+    layers.slots.innerHTML = '';
+    if (!prefs.cards) { // no cards on the board: the era plaque is pegged to the empty top-left corner of the map, so it pans and zooms with the board and never sits over the play
+      const gq = el('g', { transform: 'translate(' + (vbFull.x + 12) + ',' + (vbFull.y + 12) + ') scale(0.72)' }, layers.slots); drawEraPlaque(gq, 0, 0); return;
+    }
+    const L = slotLayout();
     { const hd = L.heads.find(x => x.name === 'Cross-region'); if (hd) drawEraPlaque(layers.slots, hd.x + hd.rails * (CW + CG) + 24, hd.y); }
     L.heads.forEach(h2 => { // a header for each group: the region, how many rails and cities
       const wide = h2.name === 'Cross-region' ? h2.rails * (CW + CG) - CG : CW, gg = el('g', {}, layers.slots);
@@ -253,7 +257,7 @@
     const a2 = el('text', { x: 110, y: 70, 'font-size': 18, fill: '#6b4e00', 'font-family': 'sans-serif' }, gp); a2.textContent = 'Fast train: ' + UP;
   }
   function drawEra() { // the plaque in the corner of the board that says which era was chosen
-    const box = $('era'); if (!box) return; box.innerHTML = ''; box.style.display = prefs.cards ? 'none' : '';
+    const box = $('era'); if (!box) return; box.innerHTML = ''; box.style.display = 'none'; // the plaque lives in the map now (drawSlots)
     const s = el('svg', { viewBox: '-36 -24 72 44', width: 58, height: 36 }, null); box.appendChild(s); drawTrain(s, ERA.icon || 'steam', '#b8860b', '#3a2a00', '', 0.95);
     const d = document.createElement('div'); d.innerHTML = '<b>' + esc(ERA.year || '') + (ERA.year ? ' &middot; ' : '') + esc(ERA.label || 'Classic') + '</b><span>Fast train: ' + esc(UP) + '</span>'; box.appendChild(d); box.title = 'Era: ' + (ERA.label || 'Classic') + '. The upgrade is called the ' + UP + '.';
     const h1 = document.querySelector('header h1'); if (h1) h1.textContent = 'Iron Meridian' + (ERA.year ? ' · ' + ERA.year : '');
